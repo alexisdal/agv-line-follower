@@ -11,9 +11,9 @@ Servo myservo_right;
 #define ESC_MIN 1000
 #define ESC_MAX 2000
 #define ESC_STOP 1450
-#define NOMINALSPEED 1750
+#define NOMINAL_SPEED 1750
 //#define KSTEEP 1.2 //0.8
-const float KSTEEP = (NOMINALSPEED - ESC_STOP);
+const float KSTEEP = (NOMINAL_SPEED - ESC_STOP);
 
 int motor_speed_left = ESC_STOP;
 int motor_speed_right = ESC_STOP;
@@ -41,10 +41,15 @@ void setup()
 
   // we need to initialize the pixy object
   pixy.init();
+  pixy.setLED(255, 255, 255); // white
   // Change to line tracking program
   pixy.changeProg("line");
 
   current_tick = millis();
+  delay(1000);
+  pixy.setLED(0, 0, 0); // off
+  pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
+
 
 }
 
@@ -88,12 +93,11 @@ void lecturePixyFront()
     Serial.print("KO\t");
     Serial.print(nbError);
     Serial.print("\t");
-    if (nbError > 60) // given that loops runs at 30Hz => let's give it 2 seconds
+    if (nbError > 60) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
       stop_motors();
     }
-  } else
-  {
+  } else {
     Serial.print("ok\t");
     if (res & LINE_VECTOR) {
       Serial.print("ok\t");
@@ -111,11 +115,56 @@ void lecturePixyFront()
     if (res & LINE_BARCODE)
     {
       // do nothing for now
+      if (pixy.line.barcodes->m_code == 0) { // barcode 0 is full stop
+        Serial.print("\n\n *** FULL STOP *** \n\n");
+        brake_and_stop_motors();
+      } else if (pixy.line.barcodes->m_code == 1) { // barcode 1 is u-turn left
+        Serial.print("\n\n *** U-TURN LEFT *** \n\n");
+        u_turn(true);
+      } else if (pixy.line.barcodes->m_code == 2) { // barcode 2 is u-turn right
+        Serial.print("\n\n *** U-TURN RIGHT *** \n\n");
+        u_turn(false);
+      }
     }
 
     suiviLigne();
   }
 }
+
+void u_turn(bool left) {
+  pixy.setLamp(0, 0); // Turn off both lamps
+  pixy.setLED(0, 0, 255); // blue
+  stop_motors(); update_motors(); delay(500);
+  pixy.setLED(0, 255, 0); // green
+  if (left) {
+    motor_speed_left  = ESC_STOP - KSTEEP * 0.7;
+    motor_speed_right = ESC_STOP + KSTEEP * 0.7;
+  } else {
+    motor_speed_left  = ESC_STOP + KSTEEP * 0.7;
+    motor_speed_right = ESC_STOP - KSTEEP * 0.7;
+  }
+  update_motors();
+  delay(2250);
+  pixy.setLED(0, 0, 0); // off
+  pixy.setLamp(1, 1);
+  linePosition  = (left ? -1 : +1) * (pixy.frameWidth / 2);
+}
+
+
+void brake_and_stop_motors() {
+  pixy.setLamp(0, 0); // Turn off both lamps
+  motor_speed_left  = NOMINAL_SPEED - KSTEEP * 0.5;
+  motor_speed_right = NOMINAL_SPEED - KSTEEP * 0.5;
+  update_motors(); delay(250);
+  stop_motors(); update_motors(); delay(1000);
+  while (true) {
+    pixy.setLED(255, 0, 0); // red
+    delay(500);
+    pixy.setLED(0, 0, 0); // off
+    delay(500);
+  }
+}
+
 
 void stop_motors() {
   motor_speed_left = ESC_STOP;
@@ -131,20 +180,20 @@ void suiviLigne()
 
   if (linePosition == 0)
   {
-    motor_speed_left  = NOMINALSPEED;
-    motor_speed_right = NOMINALSPEED;
+    motor_speed_left  = NOMINAL_SPEED;
+    motor_speed_right = NOMINAL_SPEED;
   }
 
   if (linePosition > 0)//turn right
   {
-    motor_speed_left  = NOMINALSPEED;
-    motor_speed_right = NOMINALSPEED - KSTEEP * factor;
+    motor_speed_left  = NOMINAL_SPEED;
+    motor_speed_right = NOMINAL_SPEED - KSTEEP * factor;
   }
 
   if (linePosition < 0)//turn left
   {
-    motor_speed_left  = NOMINALSPEED - KSTEEP * (-1) * factor;
-    motor_speed_right = NOMINALSPEED;
+    motor_speed_left  = NOMINAL_SPEED - KSTEEP * (-1) * factor;
+    motor_speed_right = NOMINAL_SPEED;
   }
 
 }

@@ -10,13 +10,22 @@ Servo myservo_right;
 
 #define ESC_MIN 1000
 #define ESC_MAX 2000
-#define ESC_STOP 1450
-#define NOMINAL_SPEED 1750
+#define ESC_STOP 1450 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
+//#define NOMINAL_SPEED 1750
+#define NOMINAL_SPEED 1850
+#define NOMINAL_SPEED_WARNING 1700 
+
+//bool crit_stop = false;
+
 //#define KSTEEP 1.2 //0.8
-const float KSTEEP = (NOMINAL_SPEED - ESC_STOP);
+float KSTEEP = (NOMINAL_SPEED - ESC_STOP);
 
 int motor_speed_left = ESC_STOP;
 int motor_speed_right = ESC_STOP;
+
+int nominal_speed = NOMINAL_SPEED;
+//const int nominal_speed_warning = NOMINAL_SPEED - ((NOMINAL_SPEED + ESC_STOP) / 2);
+//const int nominal_speed_warning = (NOMINAL_SPEED*3 + ESC_STOP*2) / 5;
 
 #define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
 
@@ -28,11 +37,24 @@ long last_tick = 0;
 long current_tick = 0;
 long duration = 0;
 
+//Lidar data
+#define PIN_LIDAR_DATA_0   6 //receive data from lidar arduino
+#define PIN_LIDAR_DATA_1   7 //receive data from lidar arduino
+
+#define COMM_ALL_OK   0
+#define COMM_WARN     1
+#define COMM_CRIT     2
+#define COMM_ERR      3
+
 void setup()
 {
   last_tick = millis();
   Serial.begin(115200);
   Serial.print("Starting...\n");
+
+
+  pinMode(PIN_LIDAR_DATA_0, INPUT);
+  pinMode(PIN_LIDAR_DATA_1, INPUT);
 
   setup_motors();
   stop_motors();
@@ -53,17 +75,21 @@ void setup()
 
 }
 
-void setup_motors() {
+void setup_motors() 
+{
   pinMode(pin_motor_pwm_left, OUTPUT);
   myservo_left.attach(pin_motor_pwm_left);
   pinMode(pin_motor_pwm_right, OUTPUT);
   myservo_right.attach(pin_motor_pwm_right);
 }
 
+
+
 void loop()
 {
   current_tick = millis();
-  lecturePixyFront();
+  obstacle_detection();
+  lecture_pixy_front();
   update_motors();
   //long duration = current_tick - last_tick;
   //Serial.print(duration );
@@ -75,7 +101,48 @@ void loop()
 
 }
 
-void lecturePixyFront()
+int get_lidar_state() 
+{
+  int d0 = digitalRead(PIN_LIDAR_DATA_0);
+  int d1 = digitalRead(PIN_LIDAR_DATA_1);
+  
+          //         D0   D1
+          // ALL OK   0    0
+          // WARN     0    1
+          // CRIT     1    0
+          // ERR      1    1
+  
+  int state = 0;
+  
+  if        ((d0 == 0) && (d1 == 0)) {
+    state = COMM_ALL_OK;
+  } else if ((d0 == 0) && (d1 == 1)) {
+    state = COMM_WARN;
+  } else if ((d0 == 1) && (d1 == 0)) {
+    state = COMM_CRIT;
+  } else {
+    state = COMM_ERR;
+  } 
+  return state;  
+}
+
+void obstacle_detection()
+{
+  int state = get_lidar_state();
+  if ((state == COMM_CRIT) || (state == COMM_ERR)) {
+    stop_motors(); update_motors(); delay(4000); // crit_stop = true; //delay(10000);
+  } else if (state == COMM_WARN) {
+    //if (crit_stop) { delay(5000); crit_stop = false; }
+    nominal_speed = NOMINAL_SPEED_WARNING;
+    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);    
+  } else {
+    //if (crit_stop) { delay(5000); crit_stop = false; }
+    nominal_speed = NOMINAL_SPEED;
+    KSTEEP = (NOMINAL_SPEED - ESC_STOP);
+  }
+}
+
+void lecture_pixy_front()
 {
 
   int8_t res;
@@ -90,17 +157,19 @@ void lecturePixyFront()
   if (res <= 0)
   {
     nbError += 1;
-    Serial.print("KO\t");
-    Serial.print(nbError);
+    //Serial.print("KO\t");
+    //Serial.print(nbError);
     Serial.print("\t");
     if (nbError > 60) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
       stop_motors();
+    } else {
+      suiviLigne();
     }
   } else {
-    Serial.print("ok\t");
+    //Serial.print("ok\t");
     if (res & LINE_VECTOR) {
-      Serial.print("ok\t");
+      //Serial.print("ok\t");
 
       nbError = 0;
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
@@ -126,9 +195,9 @@ void lecturePixyFront()
         u_turn(false);
       }
     }
-
     suiviLigne();
   }
+  
 }
 
 void u_turn(bool left) {
@@ -153,8 +222,8 @@ void u_turn(bool left) {
 
 void brake_and_stop_motors() {
   pixy.setLamp(0, 0); // Turn off both lamps
-  motor_speed_left  = NOMINAL_SPEED - KSTEEP * 0.5;
-  motor_speed_right = NOMINAL_SPEED - KSTEEP * 0.5;
+  motor_speed_left  = nominal_speed - KSTEEP * 0.5;
+  motor_speed_right = nominal_speed - KSTEEP * 0.5;
   update_motors(); delay(250);
   stop_motors(); update_motors(); delay(1000);
   while (true) {
@@ -180,23 +249,30 @@ void suiviLigne()
 
   if (linePosition == 0)
   {
-    motor_speed_left  = NOMINAL_SPEED;
-    motor_speed_right = NOMINAL_SPEED;
+    motor_speed_left  = nominal_speed;
+    motor_speed_right = nominal_speed;
   }
 
   if (linePosition > 0)//turn right
   {
-    motor_speed_left  = NOMINAL_SPEED;
-    motor_speed_right = NOMINAL_SPEED - KSTEEP * factor;
+    motor_speed_left  = nominal_speed;
+    motor_speed_right = nominal_speed - KSTEEP * factor;
   }
 
   if (linePosition < 0)//turn left
   {
-    motor_speed_left  = NOMINAL_SPEED - KSTEEP * (-1) * factor;
-    motor_speed_right = NOMINAL_SPEED;
+    motor_speed_left  = nominal_speed - KSTEEP * (-1) * factor;
+    motor_speed_right = nominal_speed;
   }
 
+  //Serial.print(motor_speed_left);
+  //Serial.print("\t");
+  //Serial.print(motor_speed_right);
+  //Serial.print("\n");
+
 }
+
+
 
 void update_motors() {
   moveMotorLeft(motor_speed_left);

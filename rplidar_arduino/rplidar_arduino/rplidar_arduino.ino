@@ -8,8 +8,20 @@ RPLidar lidar;
 #define RPLIDAR_MOTOR A0 // The PWM pin for control the speed of RPLIDAR's motor.
 // This pin should connected with the RPLIDAR's MOTOCTRL signal
 
-#define LED_WARNING A6 // to light something up
-#define LED_CRITICAL A7 // to light something up
+#define PIN_LED_WARNING  A5 // to light something up
+#define PIN_LED_CRITICAL A4 // to light something up
+#define PIN_LIDAR_DATA_0   10 //send data to arduino
+#define PIN_LIDAR_DATA_1   11 //send data to arduino
+
+#define COMM_ALL_OK   0
+#define COMM_WARN     1
+#define COMM_CRIT     2
+#define COMM_ERR      3
+//         D0   D1
+// ALL OK   0    0
+// WARN     0    1
+// CRIT     1    0
+// ERR      1    1
 
 
 #define ZONE_CRITICAL  0
@@ -25,16 +37,21 @@ float tolerated_distances[NUM_ZONES];
 
 void setup() {
 
+  analogWrite(PIN_LED_WARNING, 0);
+  analogWrite(PIN_LED_CRITICAL, 0);
+
   Serial.begin(115200);
   Serial.print("start\n");
 
-  // bind the RPLIDAR driver to the arduino hardware serial
-  lidar.begin(Serial);
+  Serial.print("blinking done\n");
+
 
   // set pin modes
   pinMode(RPLIDAR_MOTOR, OUTPUT);
-  pinMode(LED_WARNING, OUTPUT);
-  pinMode(LED_CRITICAL, OUTPUT);
+  pinMode(PIN_LED_WARNING, OUTPUT);
+  pinMode(PIN_LED_CRITICAL, OUTPUT);
+  pinMode(PIN_LIDAR_DATA_0, OUTPUT);
+  pinMode(PIN_LIDAR_DATA_1, OUTPUT);
 
   tolerated_distances[ZONE_CRITICAL] = 210.0;
   tolerated_distances[ZONE_A] = 250.0;
@@ -43,13 +60,21 @@ void setup() {
   tolerated_distances[ZONE_D] = 360.0;
   tolerated_distances[ZONE_E] = 450.0;
   reset_values();
-  analogWrite(LED_WARNING, 0);
-  analogWrite(LED_CRITICAL, 0);
+
+  send_communication(COMM_ERR);
+  blink_led();
+  
+  // bind the RPLIDAR driver to the arduino hardware serial
+  lidar.begin(Serial);
+
+
 
 }
 
-void reset_values() {
-  for (int i = 0 ; i < NUM_ZONES ; i++)   {
+void reset_values()
+{
+  for (int i = 0 ; i < NUM_ZONES ; i++)
+  {
     min_distances[i] = MAXIMUM_DISTANCE;
   }
 
@@ -60,16 +85,19 @@ void reset_values() {
 //    min(min_distances[ZONE_C], min(min_distances[ZONE_B], min_distances[ZONE_A]))));
 //}
 
-bool is_warning_zone_entered() {
-  return    min_distances[ZONE_A] < tolerated_distances[ZONE_A]
-         || min_distances[ZONE_B] < tolerated_distances[ZONE_B]
-         || min_distances[ZONE_C] < tolerated_distances[ZONE_C]
-         || min_distances[ZONE_D] < tolerated_distances[ZONE_D]
-         || min_distances[ZONE_E] < tolerated_distances[ZONE_E];
+bool is_warning_zone_entered()
+{
+
+  return   (   (min_distances[ZONE_A] < tolerated_distances[ZONE_A])
+               || (min_distances[ZONE_B] < tolerated_distances[ZONE_B])
+               || (min_distances[ZONE_C] < tolerated_distances[ZONE_C])
+               || (min_distances[ZONE_D] < tolerated_distances[ZONE_D])
+               || (min_distances[ZONE_E] < tolerated_distances[ZONE_E]) );
 }
 
-bool is_critical_zone_entered() {
-  return min_distances[ZONE_CRITICAL] < tolerated_distances[ZONE_CRITICAL];
+bool is_critical_zone_entered()
+{
+  return (min_distances[ZONE_CRITICAL] < tolerated_distances[ZONE_CRITICAL]);
 }
 
 void dump_zones_distances() {
@@ -87,67 +115,134 @@ void dump_zones_distances() {
   Serial.print("\n");
 }
 
-void handle_complete_rotation() {
+void handle_complete_rotation()
+{
   //dump_zones_distances();
-  int pwm_led_warning  = 50;
-  int pwm_led_critical = 0;
-  if (is_warning_zone_entered())  {
-    pwm_led_warning = 255;
+  int led_warning = 0;
+  int led_critical = 0;
+  int communication = 0;
+  bool warn_entered = is_warning_zone_entered();
+  bool crit_entered = is_critical_zone_entered();
+  int state = COMM_ALL_OK;
+  if (warn_entered)
+  {
+    led_warning = 255;
+    state = COMM_WARN;
   }
-  if (is_critical_zone_entered()) {
-    pwm_led_critical = 255;
+  if (crit_entered)
+  {
+    led_critical = 255;
+    state = COMM_CRIT;
   }
-  analogWrite(LED_WARNING, pwm_led_warning);
-  analogWrite(LED_CRITICAL, pwm_led_critical);
+  if (!warn_entered && !crit_entered)
+  {
+    led_warning = 0;
+    led_critical = 0;
+    state = COMM_ALL_OK;
+  }
+
+  analogWrite(PIN_LED_WARNING, led_warning);
+  analogWrite(PIN_LED_CRITICAL, led_critical);
+  send_communication(state);
   reset_values();
 }
 
+void send_communication(int state) {
+  //         D0   D1
+  // ALL OK   0    0
+  // WARN     0    1
+  // CRIT     1    0
+  // ERR      1    1
+  if (state == COMM_ALL_OK) {
+    digitalWrite(PIN_LIDAR_DATA_0, 0);
+    digitalWrite(PIN_LIDAR_DATA_1, 0);
+  } else if (state == COMM_WARN) {
+    digitalWrite(PIN_LIDAR_DATA_0, 0);
+    digitalWrite(PIN_LIDAR_DATA_1, 1);
+  } else if (state == COMM_CRIT) {
+    digitalWrite(PIN_LIDAR_DATA_0, 1);
+    digitalWrite(PIN_LIDAR_DATA_1, 0);
+  } else {
+    digitalWrite(PIN_LIDAR_DATA_0, 1);
+    digitalWrite(PIN_LIDAR_DATA_1, 1);
+  }
+}
+
+void blink_led()
+{
+  for (int i = 0 ; i < 10 ; i++) {
+    analogWrite(PIN_LED_CRITICAL, 255);
+    analogWrite(PIN_LED_WARNING, 255);
+    delay(50);
+    analogWrite(PIN_LED_CRITICAL, 0);
+    analogWrite(PIN_LED_WARNING, 0);
+    delay(50);
+  }
+}
 void loop() {
-  if (IS_OK(lidar.waitPoint())) {
+
+  if (IS_OK(lidar.waitPoint()))
+  {
     float distance = lidar.getCurrentPoint().distance; //distance value in mm unit
     float angle    = lidar.getCurrentPoint().angle; //anglue value in degree
     bool  startBit = lidar.getCurrentPoint().startBit; //whether this point is belong to a new scan
     byte  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
 
     //perform data processing here...
-    if (startBit) { // we made a complete rotation
+    if (startBit)
+    { // we made a complete rotation
       handle_complete_rotation();
     }
 
-    if (quality > 10 && distance > 5.0) {
+    if ((quality > 10) && (distance > 5.0))
+    {
 
       // warning zone
-      if (0 <= angle && angle < 35.0 && distance < min_distances[ZONE_E] ) {
-        min_distances[ZONE_E] = distance;
-      } else if (35.0 <= angle && angle < 45.0 && distance < min_distances[ZONE_D] ) {
-        min_distances[ZONE_D] = distance;
-      } else if (45.0 <= angle && angle < 60.0 && distance < min_distances[ZONE_C] ) {
-        min_distances[ZONE_C] = distance;
-      } else if (60.0 <= angle && angle < 75.0 && distance < min_distances[ZONE_B] ) {
-        min_distances[ZONE_B] = distance;
-      } else if (75.0 <= angle && angle < 90.0 && distance < min_distances[ZONE_A] ) {
-        min_distances[ZONE_A] = distance;
-      } else if (270.0 <= angle && angle < 285.0 && distance < min_distances[ZONE_A] ) {
-        min_distances[ZONE_A] = distance;
-      } else if (285.0 <= angle && angle < 300.0 && distance < min_distances[ZONE_B] ) {
-        min_distances[ZONE_B] = distance;
-      } else if (300.0 <= angle && angle < 315.0 && distance < min_distances[ZONE_C] ) {
-        min_distances[ZONE_C] = distance;
-      } else if (315.0 <= angle && angle < 325.0 && distance < min_distances[ZONE_D] ) {
-        min_distances[ZONE_D] = distance;
-      } else if (325.0 <= angle && angle <= 360.0 && distance < min_distances[ZONE_E] ) {
+      if ( ((0 <= angle) && (angle < 35.0)) && (distance < min_distances[ZONE_E]) ) {
         min_distances[ZONE_E] = distance;
       }
+      else if ( ((35.0 <= angle && angle < 45.0)) && (distance < min_distances[ZONE_D]) ) {
+        min_distances[ZONE_D] = distance;
+      }
+      else if ( ((45.0 <= angle) && (angle < 60.0)) && (distance < min_distances[ZONE_C]) ) {
+        min_distances[ZONE_C] = distance;
+      }
+      else if ( ((60.0 <= angle && angle < 75.0)) && (distance < min_distances[ZONE_B]) ) {
+        min_distances[ZONE_B] = distance;
+      }
+      else if ( ((75.0 <= angle) && (angle < 90.0)) && (distance < min_distances[ZONE_A]) ) {
+        min_distances[ZONE_A] = distance;
+      }
+      else if ( ((270.0 <= angle) && (angle < 285.0)) && (distance < min_distances[ZONE_A]) ) {
+        min_distances[ZONE_A] = distance;
+      }
+      else if ( ((285.0 <= angle && angle < 300.0)) && (distance < min_distances[ZONE_B]) ) {
+        min_distances[ZONE_B] = distance;
+      }
+      else if ( ((300.0 <= angle) && (angle < 315.0)) && (distance < min_distances[ZONE_C]) ) {
+        min_distances[ZONE_C] = distance;
+      }
+      else if ( ((315.0 <= angle) && (angle < 325.0)) && (distance < min_distances[ZONE_D]) ) {
+        min_distances[ZONE_D] = distance;
+      }
+      else if ( ((325.0 <= angle) && (angle <= 360.0)) && (distance < min_distances[ZONE_E]) ) {
+        min_distances[ZONE_E] = distance;
+      }
+
 
       // critical zone
-      if (0 <= angle && angle <= 90.0 && distance < min_distances[ZONE_CRITICAL] ) {
-        min_distances[ZONE_CRITICAL] = distance;
-      } else if (270 <= angle && angle <= 360.0 && distance < min_distances[ZONE_CRITICAL] ) {
+      if ( ((0 <= angle) && (angle <= 90.0)) && (distance < min_distances[ZONE_CRITICAL]) ) {
         min_distances[ZONE_CRITICAL] = distance;
       }
+      else if ( ((270 <= angle) && (angle <= 360.0)) && (distance < min_distances[ZONE_CRITICAL]) ) {
+        min_distances[ZONE_CRITICAL] = distance;
+      }
+
     }
 
-  } else {
+  }
+  else
+  {
 
     analogWrite(RPLIDAR_MOTOR, 0); //stop the rplidar motor
 
@@ -160,6 +255,9 @@ void loop() {
       // start motor rotating at max allowed speed
       analogWrite(RPLIDAR_MOTOR, 255);
       delay(1000);
+    } else {
+      send_communication(COMM_ERR);
+      blink_led();
     }
   }
 }

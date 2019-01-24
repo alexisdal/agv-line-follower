@@ -11,8 +11,8 @@ Servo myservo_right;
 #define ESC_MIN 1000
 #define ESC_MAX 2000
 #define ESC_STOP 1450 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
-//#define NOMINAL_SPEED 1750
-#define NOMINAL_SPEED 1850
+#define NOMINAL_SPEED 1750
+//#define NOMINAL_SPEED 1850 // trop vite
 #define NOMINAL_SPEED_WARNING 1700 
 
 //bool crit_stop = false;
@@ -46,16 +46,17 @@ long duration = 0;
 #define COMM_CRIT     2
 #define COMM_ERR      3
 
+
+
 void setup()
 {
   last_tick = millis();
   Serial.begin(115200);
   Serial.print("Starting...\n");
 
-
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
-
+    
   setup_motors();
   stop_motors();
   update_motors();

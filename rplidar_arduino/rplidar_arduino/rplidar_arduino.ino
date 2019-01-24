@@ -35,6 +35,14 @@ float min_distances[NUM_ZONES];
 float tolerated_distances[NUM_ZONES];
 #define MAXIMUM_DISTANCE 9999.0
 
+//bumper data
+#define PIN_BUMPER_1   A2
+#define PIN_BUMPER_2   A3
+#define PIN_BUMPER_HS  2
+#define PIN_BUMPER_DATA  4
+int val_bumper_1 = 0;
+int val_bumper_2 = 0;
+
 void setup() {
 
   analogWrite(PIN_LED_WARNING, 0);
@@ -45,13 +53,18 @@ void setup() {
 
   Serial.print("blinking done\n");
 
-
   // set pin modes
-  pinMode(RPLIDAR_MOTOR, OUTPUT);
-  pinMode(PIN_LED_WARNING, OUTPUT);
+  pinMode(RPLIDAR_MOTOR,    OUTPUT);
+  pinMode(PIN_LED_WARNING,  OUTPUT);
   pinMode(PIN_LED_CRITICAL, OUTPUT);
   pinMode(PIN_LIDAR_DATA_0, OUTPUT);
   pinMode(PIN_LIDAR_DATA_1, OUTPUT);
+
+  // set bumper pin mode
+  pinMode(PIN_BUMPER_1,    INPUT_PULLUP);
+  pinMode(PIN_BUMPER_2,    INPUT_PULLUP);
+  pinMode(PIN_BUMPER_HS,   OUTPUT);
+  pinMode(PIN_BUMPER_DATA, OUTPUT);
 
   tolerated_distances[ZONE_CRITICAL] = 210.0;
   tolerated_distances[ZONE_A] = 250.0;
@@ -179,7 +192,40 @@ void blink_led()
     delay(50);
   }
 }
+
+void bumper_detection()
+{
+  // COM to GND && NC to analog read sur des input_pullup
+  //int max_loop = 2;
+  int max_loop = 1;
+  int nb_bump = 0;
+
+  /*
+  Serial.print("BUMPER_VAL: ");
+  Serial.print(val_bumper_1);
+  Serial.print("\t");
+  Serial.println(val_bumper_2);
+  */
+      
+  for (int i = 0 ; i < max_loop; i++) 
+  {
+    val_bumper_1 = analogRead(PIN_BUMPER_1);
+    val_bumper_2 = analogRead(PIN_BUMPER_2);
+    
+    if (val_bumper_1 > 900 || val_bumper_2 > 900)
+    {
+      nb_bump += 1;
+    }
+  }
+  if (nb_bump >= max_loop) { // if one bumper was detected at least once...
+    digitalWrite(PIN_BUMPER_HS, HIGH); // led on
+    digitalWrite(PIN_BUMPER_DATA, HIGH); // send stop signal to the main arduino
+  }
+}
+
 void loop() {
+  
+  bumper_detection();
 
   if (IS_OK(lidar.waitPoint()))
   {

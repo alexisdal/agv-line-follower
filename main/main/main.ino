@@ -40,6 +40,7 @@ long duration = 0;
 //Lidar data
 #define PIN_LIDAR_DATA_0   6 //receive data from lidar arduino
 #define PIN_LIDAR_DATA_1   7 //receive data from lidar arduino
+#define PIN_LIDAR_BUMP     4 //receive default bumper signal
 
 #define COMM_ALL_OK   0
 #define COMM_WARN     1
@@ -56,6 +57,7 @@ void setup()
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
+  pinMode(PIN_LIDAR_BUMP, INPUT_PULLUP);
     
   setup_motors();
   stop_motors();
@@ -85,11 +87,11 @@ void setup_motors()
 }
 
 
-
 void loop()
 {
   current_tick = millis();
-  obstacle_detection();
+  //bumper_detection();
+  //obstacle_detection();
   lecture_pixy_front();
   update_motors();
   //long duration = current_tick - last_tick;
@@ -101,6 +103,17 @@ void loop()
   last_tick = current_tick;
 
 }
+
+void bumper_detection(){
+ if (digitalRead(PIN_LIDAR_BUMP) == 1)
+ {
+    stop_motors(); update_motors(); delay(2000);
+    while(digitalRead(PIN_LIDAR_BUMP) == 1) {
+      delay(4000);
+    }
+ }
+}
+
 
 int get_lidar_state() 
 {

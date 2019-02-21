@@ -1,7 +1,7 @@
 /*
- Name:		VescUartSample.ino
- Created:	9/26/2015 10:12:38 PM
- Author:	AC
+  Name:		VescUartSample.ino
+  Created:	9/26/2015 10:12:38 PM
+  Author:	AC
 */
 
 // the setup function runs once when you press reset or power the board
@@ -16,7 +16,7 @@
 #include <Pixy2.h>
 Pixy2 pixy;
 
-//#define DEBUG 
+//#define DEBUG
 // in firmware 6.4 a  nd wheels in the middle, we revert back to 6.2 configuration
 #define SERIAL_RIGHT Serial1
 #define SERIAL_LEFT Serial2
@@ -34,14 +34,30 @@ unsigned long last_voltage_check_in_ms = 0;
 //                          36.60v with nearly dead battery
 // with VESC averaging 100 values i read 37.02906504
 // let's use 37v for now
-#define VOLTAGE_WARNING_LEVEL 37.0
+#define VOLTAGE_WARNING_LEVEL 22.0 // 2x12v lead batteries
 
-// roue 6.5 pouce hoverboard
+
+
+#define FOUR_INCHES_WHEEL_GEARED
+//#define OVERBOARD_WHEEL
+
+#ifdef OVERBOARD_WHEEL
+#define ESC_MIN -2500
+#define ESC_STOP 150 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
+#define ESC_MAX 2500
+#define NOMINAL_SPEED 900
+#define NOMINAL_SPEED_WARNING 550
+#endif
+
+#ifdef FOUR_INCHES_WHEEL_GEARED
 #define ESC_MIN -5000
 #define ESC_STOP 150 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
 #define ESC_MAX 5000
 #define NOMINAL_SPEED 3000
 #define NOMINAL_SPEED_WARNING 500
+#endif
+
+
 
 #define OBSERVED_FPS 60.0 // how much fps i have measure in my console given everything i do
 float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 1.00 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
@@ -84,17 +100,28 @@ long duration = 0;
 #define COMM_CRIT     2
 #define COMM_ERR      3
 
+// metro stop
+unsigned long metro_stop_counter = 0;
+#define STOP_EVERY_X_BARCODE  3
+#define METRO_STATION_STOP_DURATION_IN_SECONDS 5
+
+#define PIN_LED_TURN_LEFT A14  // green
+#define PIN_LED_TURN_RIGHT A15 // red
+unsigned long last_barcode_read_tick = 0;
+
+
+
 void setup() {
   DEBUGSERIAL.begin(115200);
-  #ifdef DEBUG
-  	//SEtup debug port
-  	SetDebugSerialPort(&DEBUGSERIAL);
-	#endif
+#ifdef DEBUG
+  //SEtup debug port
+  SetDebugSerialPort(&DEBUGSERIAL);
+#endif
 
   last_tick = millis();
-  
+
   Serial.print("Starting...\n");
-  
+
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
   pinMode(PIN_LIDAR_BUMP, INPUT_PULLUP);
@@ -102,11 +129,26 @@ void setup() {
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
-  
+
+  pinMode(PIN_LED_TURN_LEFT, OUTPUT);
+  pinMode(PIN_LED_TURN_RIGHT, OUTPUT);
+  // blink on startup
+  for (int i = 0 ; i < 5  ; i++) {
+    digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
+    digitalWrite(PIN_LED_TURN_RIGHT, LOW);
+    delay(200);
+    digitalWrite(PIN_LED_TURN_LEFT,  LOW);
+    digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
+    delay(200);
+  }
+  digitalWrite(PIN_LED_TURN_LEFT,  LOW);
+  digitalWrite(PIN_LED_TURN_RIGHT, LOW);
+
+
   setup_motors();
   stop_motors();
   update_motors();
-  delay(3000); // stay stopped for a while (safe start)
+  delay(3000); // stay stopped for a while (safe )
 
   // init led
   digitalWrite(PIN_LED_RED, HIGH);
@@ -126,7 +168,9 @@ void setup() {
   pixy.changeProg("line");
 
   // initialize the voltage checks
-  for (int i = 0 ; i < NUM_READING_VOLTAGE ; i++) { inpVoltages[i] = -1.0; }
+  for (int i = 0 ; i < NUM_READING_VOLTAGE ; i++) {
+    inpVoltages[i] = -1.0;
+  }
 
 
   current_tick = millis();
@@ -137,6 +181,8 @@ void setup() {
   //Serial.print("acc_limit_positive:"); Serial.print(acc_limit_positive); Serial.print("\n");
   //Serial.print("acc_limit_positive:"); Serial.print(acc_limit_negative); Serial.print("\n");
   //while(1) { ;}
+
+  Serial.print("init done\n");
 }
 
 
@@ -153,24 +199,25 @@ void loop() {
   update_motors();
   //long update_motors_ms = millis();
   long duration = current_tick - last_tick;
-  
-  Serial.print("millis:\t");
+
+  //Serial.print("millis:\t");
   //Serial.print("bat:");Serial.print(handle_battery_level_ms - current_tick); Serial.print("\t");
   //Serial.print("bmp:");Serial.print(handle_battery_level_ms - bumper_detection_ms); Serial.print("\t");
   //Serial.print("obs:");Serial.print(bumper_detection_ms - obstacle_detection_ms); Serial.print("\t");
   //Serial.print("pix:");Serial.print(obstacle_detection_ms - lecture_pixy_front_ms); Serial.print("\t");
   //Serial.print("mtr:");Serial.print(lecture_pixy_front_ms - update_motors_ms); Serial.print("\t");
 
-  Serial.print(duration );
-  Serial.print("\t");
-  float hz = 1000.0 / ((float)(duration));
-  Serial.print(hz);
-  Serial.print("\n");
+  //Serial.print(duration );
+  //Serial.print("\t");
+  //float hz = 1000.0 / ((float)(duration));
+  //Serial.print(hz);
+  //Serial.print("\n");
+
   last_tick = current_tick;
 
 }
 
-void setup_motors() 
+void setup_motors()
 {
   //Setup UART port
   SERIAL_RIGHT.begin(115200);
@@ -179,31 +226,31 @@ void setup_motors()
   SetSerialPort(&SERIAL_LEFT);
 }
 
-void bumper_detection(){
- if (digitalRead(PIN_LIDAR_BUMP) == 1)
- {
+void bumper_detection() {
+  if (digitalRead(PIN_LIDAR_BUMP) == 1)
+  {
     stop_motors(); update_motors(); delay(2000);
-    
-    while(digitalRead(PIN_LIDAR_BUMP) == 1) {
+
+    while (digitalRead(PIN_LIDAR_BUMP) == 1) {
       delay(4000);
     }
- }
+  }
 }
 
 
-int get_lidar_state() 
+int get_lidar_state()
 {
   int d0 = digitalRead(PIN_LIDAR_DATA_0);
   int d1 = digitalRead(PIN_LIDAR_DATA_1);
-  
-          //         D0   D1
-          // ALL OK   0    0
-          // WARN     0    1
-          // CRIT     1    0
-          // ERR      1    1
-  
+
+  //         D0   D1
+  // ALL OK   0    0
+  // WARN     0    1
+  // CRIT     1    0
+  // ERR      1    1
+
   int state = 0;
-  
+
   if        ((d0 == 0) && (d1 == 0)) {
     state = COMM_ALL_OK;
   } else if ((d0 == 0) && (d1 == 1)) {
@@ -212,8 +259,8 @@ int get_lidar_state()
     state = COMM_CRIT;
   } else {
     state = COMM_ERR;
-  } 
-  return state;  
+  }
+  return state;
 }
 
 void obstacle_detection()
@@ -224,7 +271,7 @@ void obstacle_detection()
   } else if (state == COMM_WARN) {
     //if (crit_stop) { delay(5000); crit_stop = false; }
     nominal_speed = NOMINAL_SPEED_WARNING;
-    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);    
+    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
   } else {
     //if (crit_stop) { delay(5000); crit_stop = false; }
     nominal_speed = NOMINAL_SPEED;
@@ -241,7 +288,7 @@ void lecture_pixy_front()
   // char buf[96];
 
   // Get latest data from Pixy, including main vector, new intersections and new barcodes.
-  res = pixy.line.getMainFeatures();
+  res = pixy.line.getMainFeatures(); // using getMainFeature will give barcode only "once" (whereas getAllFeatures show barcodes all the time)
 
   // If error or nothing detected, stop motors
   if (res <= 0)
@@ -249,7 +296,7 @@ void lecture_pixy_front()
     nbError += 1;
     //Serial.print("KO\t");
     //Serial.print(nbError);
-    Serial.print("\t");
+    //Serial.print("\t");
     if (nbError > MAX_LINE_MISS) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
       stop_motors();
@@ -273,42 +320,47 @@ void lecture_pixy_front()
     // Managing barcodes
     if (res & LINE_BARCODE)
     {
-      // do nothing for now
-      if (pixy.line.barcodes->m_code == 0) { // barcode 0 is full stop
-        Serial.print("\n\n *** FULL STOP *** \n\n");
-        brake_and_stop_motors();
-      } else if (pixy.line.barcodes->m_code == 1) { // barcode 1 is u-turn left
-        Serial.print("\n\n *** U-TURN LEFT *** \n\n");
-        u_turn(true);
-      } else if (pixy.line.barcodes->m_code == 2) { // barcode 2 is u-turn right
-        Serial.print("\n\n *** U-TURN RIGHT *** \n\n");
-        u_turn(false);
+      if (pixy.line.barcodes->m_code == 0) { // barcode 0 is metro station
+        Serial.print("*** METRO STATION *** \n");
+        handle_metro_stop();
       }
     }
+
     suiviLigne();
   }
-  
-}
 
-void u_turn(bool left) {
-  pixy.setLamp(0, 0); // Turn off both lamps
-  pixy.setLED(0, 0, 255); // blue
-  stop_motors(); update_motors(); delay(500);
-  pixy.setLED(0, 255, 0); // green
-  if (left) {
-    motor_speed_left  = ESC_STOP - KSTEEP * 0.7;
-    motor_speed_right = ESC_STOP + KSTEEP * 0.7;
+  if (current_tick - last_barcode_read_tick > 1000) { // drop led for 1sec
+    digitalWrite(PIN_LED_TURN_LEFT,  LOW);
+    digitalWrite(PIN_LED_TURN_RIGHT, LOW);
   } else {
-    motor_speed_left  = ESC_STOP + KSTEEP * 0.7;
-    motor_speed_right = ESC_STOP - KSTEEP * 0.7;
+    digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
+    digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
   }
-  update_motors();
-  delay(2250);
-  pixy.setLED(0, 0, 0); // off
-  pixy.setLamp(1, 1);
-  linePosition  = (left ? -1 : +1) * (pixy.frameWidth / 2);
+
 }
 
+void handle_metro_stop() {
+  if (current_tick - last_barcode_read_tick > 1000) {
+    Serial.print("*** BARCODE ACCEPTED *** \n");
+    if (metro_stop_counter % STOP_EVERY_X_BARCODE == 0) {
+      stop_motors(); update_motors();
+      Serial.print("*** METRO STATION STOP *** \n");
+      digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
+      digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
+      delay(1000 * METRO_STATION_STOP_DURATION_IN_SECONDS);
+      digitalWrite(PIN_LED_TURN_LEFT,  LOW);
+      digitalWrite(PIN_LED_TURN_RIGHT, LOW);
+    }
+    Serial.print(metro_stop_counter);
+    Serial.print("\t");
+    Serial.print(STOP_EVERY_X_BARCODE);
+    Serial.print("\t");
+    Serial.print(metro_stop_counter % STOP_EVERY_X_BARCODE);
+    Serial.print("\n");
+    metro_stop_counter++;
+  }
+  last_barcode_read_tick = millis();
+}
 
 void brake_and_stop_motors() {
   pixy.setLamp(0, 0); // Turn off both lamps
@@ -326,7 +378,7 @@ void brake_and_stop_motors() {
 
 
 void stop_motors() {
-  
+
   digitalWrite(PIN_LED_GREEN, LOW);
   digitalWrite(PIN_LED_RED, HIGH);
   digitalWrite(PIN_LED_BLUE, LOW);
@@ -335,7 +387,7 @@ void stop_motors() {
   //motor_speed_right = ESC_STOP;
   motor_speed_left = 0;
   motor_speed_right = 0;
-  Serial.print("\n\n **** STOP MOTORS **** \n\n");
+  //Serial.print("\n\n **** STOP MOTORS **** \n\n");
 }
 
 
@@ -351,7 +403,7 @@ void suiviLigne()
     digitalWrite(PIN_LED_BLUE, LOW);
     digitalWrite(PIN_LED_GREEN, HIGH);
   }
-  
+
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
   motor_speed_left_prev  = motor_speed_left_prev;
@@ -377,13 +429,21 @@ void suiviLigne()
 
   // handle acceleration limits
   int acc_left = motor_speed_left - motor_speed_left_prev;
-  if (acc_left > 0 && acc_left > +acc_limit_positive) { motor_speed_left = motor_speed_left + acc_limit_positive; }
-  if (acc_left < 0 && acc_left < -acc_limit_negative) { motor_speed_left = motor_speed_left - acc_limit_negative; }
+  if (acc_left > 0 && acc_left > +acc_limit_positive) {
+    motor_speed_left = motor_speed_left + acc_limit_positive;
+  }
+  if (acc_left < 0 && acc_left < -acc_limit_negative) {
+    motor_speed_left = motor_speed_left - acc_limit_negative;
+  }
   int acc_right = motor_speed_right - motor_speed_right_prev;
-  if (acc_right > 0 && acc_right > +acc_limit_positive) { motor_speed_right = motor_speed_right + acc_limit_positive; }
-  if (acc_right < 0 && acc_right < -acc_limit_negative) { motor_speed_right = motor_speed_right - acc_limit_negative; }
-  
-  
+  if (acc_right > 0 && acc_right > +acc_limit_positive) {
+    motor_speed_right = motor_speed_right + acc_limit_positive;
+  }
+  if (acc_right < 0 && acc_right < -acc_limit_negative) {
+    motor_speed_right = motor_speed_right - acc_limit_negative;
+  }
+
+
 
   //Serial.print(motor_speed_left);
   //Serial.print("\t");
@@ -399,7 +459,7 @@ void update_motors() {
     int test_speed = 600;
     motor_speed_left  = test_speed;
     motor_speed_right = test_speed;
-  } 
+  }
   moveMotorLeft(motor_speed_left);
   moveMotorRight(motor_speed_right);
 }
@@ -427,18 +487,20 @@ void handle_battery_level() {
   if (current_tick - last_voltage_check_in_ms > 1000) {
     last_voltage_check_in_ms = current_tick;
     inpVoltages[voltage_index++] = get_battery_voltage();
-    if (voltage_index >= NUM_READING_VOLTAGE) { voltage_index = 0; }
+    if (voltage_index >= NUM_READING_VOLTAGE) {
+      voltage_index = 0;
+    }
     float measure = 0.0;
     float average = 0.0;
     voltage_ready = true;
-    for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) { 
+    for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
       measure = get_battery_voltage();
       average += measure;
       voltage_ready = voltage_ready && (measure > 0);
     }
     average /= NUM_READING_VOLTAGE;
     if (voltage_ready && average <= VOLTAGE_WARNING_LEVEL) {
-      battery_warning = true;      
+      battery_warning = true;
     }
   }
 }
@@ -447,4 +509,3 @@ float get_battery_voltage() {
   VescUartGetValue(measuredVal, &SERIAL_LEFT);
   return measuredVal.inpVoltage;
 }
-

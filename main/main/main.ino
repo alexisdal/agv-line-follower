@@ -1,8 +1,3 @@
-/*
-  Name:		VescUartSample.ino
-  Created:	9/26/2015 10:12:38 PM
-  Author:	AC
-*/
 
 // the setup function runs once when you press reset or power the board
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -54,14 +49,14 @@ unsigned long last_voltage_check_in_ms = 0;
 #define ESC_STOP 150 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
 #define ESC_MAX 5000
 #define NOMINAL_SPEED 3000
-#define NOMINAL_SPEED_WARNING 500
+#define NOMINAL_SPEED_WARNING 1500
 #endif
 
 
 
 #define OBSERVED_FPS 60.0 // how much fps i have measure in my console given everything i do
-float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 1.00 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
-float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.30 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
+float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 0.25 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
+float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
 #define MAX_LINE_MISS 90 // at 60fps 
 
 //#define KSTEEP 1.2 //0.8
@@ -104,10 +99,27 @@ long duration = 0;
 unsigned long metro_stop_counter = 0;
 #define STOP_EVERY_X_BARCODE  3
 #define METRO_STATION_STOP_DURATION_IN_SECONDS 5
+#define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
 #define PIN_LED_TURN_LEFT A14  // green
 #define PIN_LED_TURN_RIGHT A15 // red
 unsigned long last_barcode_read_tick = 0;
+
+
+enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_ORANGE, C_CYAN, C_WHITE}; 
+#define NUM_COLORS 8
+enum c{_R, _G, _B}; 
+int rgb[NUM_COLORS][3] = {
+  { 0, 0, 0 },   // OFF (black?)
+  { 1, 0, 0 },   // RED
+  { 0, 1, 0 },   // GREEN
+  { 0, 0, 1 },   // BLUE
+  { 1, 0, 1 },   // PURPLE
+  { 1, 1, 0 },   // ORANGE
+  { 0, 1, 1 },   // CYAN
+  { 1, 1, 1 }    // WHITE
+};
+
 
 
 
@@ -129,7 +141,8 @@ void setup() {
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
-
+  
+/*
   pinMode(PIN_LED_TURN_LEFT, OUTPUT);
   pinMode(PIN_LED_TURN_RIGHT, OUTPUT);
   // blink on startup
@@ -143,23 +156,21 @@ void setup() {
   }
   digitalWrite(PIN_LED_TURN_LEFT,  LOW);
   digitalWrite(PIN_LED_TURN_RIGHT, LOW);
-
+*/
 
   setup_motors();
   stop_motors();
   update_motors();
-  delay(3000); // stay stopped for a while (safe )
 
-  // init led
-  digitalWrite(PIN_LED_RED, HIGH);
-  delay(100);
-  digitalWrite(PIN_LED_RED, LOW);
-  digitalWrite(PIN_LED_BLUE, HIGH);
-  delay(100);
-  digitalWrite(PIN_LED_BLUE, LOW);
-  digitalWrite(PIN_LED_GREEN, HIGH);
-  delay(100);
-  digitalWrite(PIN_LED_GREEN, LOW);
+  // stay stopped for a while (safe start 3sec)
+  int t = 1000 / NUM_COLORS;
+  for (int i = 0 ; i < 3 ; i++) {
+    for (int j = 0 ; j < NUM_COLORS ; j++) {
+      set_led_color(j);    delay(t);
+    }
+  }
+
+  set_led_color(C_GREEN);
 
   // we need to initialize the pixy object
   pixy.init();
@@ -175,7 +186,7 @@ void setup() {
 
   current_tick = millis();
   delay(60);
-  pixy.setLED(0, 0, 0); // off
+  pixy.setLED(255, 255, 255); // off
   pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
   //Serial.print("NOMINAL_SPEED:"); Serial.print(NOMINAL_SPEED); Serial.print("\n");
   //Serial.print("acc_limit_positive:"); Serial.print(acc_limit_positive); Serial.print("\n");
@@ -185,14 +196,19 @@ void setup() {
   Serial.print("init done\n");
 }
 
+void set_led_color(color c) {
+  digitalWrite(PIN_LED_RED   , rgb[c][_R]);
+  digitalWrite(PIN_LED_GREEN,  rgb[c][_G]);
+  digitalWrite(PIN_LED_BLUE  , rgb[c][_B]);
+}
 
 void loop() {
   current_tick = millis();
   handle_battery_level();
   //long handle_battery_level_ms = millis();
-  //bumper_detection();
+  bumper_detection();
   //long bumper_detection_ms = millis();
-  //obstacle_detection();
+  obstacle_detection();
   //long obstacle_detection_ms = millis();
   lecture_pixy_front();
   //long lecture_pixy_front_ms = millis();
@@ -266,14 +282,16 @@ int get_lidar_state()
 void obstacle_detection()
 {
   int state = get_lidar_state();
-  if ((state == COMM_CRIT) || (state == COMM_ERR)) {
-    stop_motors(); update_motors(); delay(4000); // crit_stop = true; //delay(10000);
+  if (state == COMM_ERR) {
+    stop_motors(); update_motors(); 
+    set_led_color(C_PURPLE);
+    delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
+  } else if (state == COMM_CRIT) {
+    stop_motors(); update_motors(); delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
   } else if (state == COMM_WARN) {
-    //if (crit_stop) { delay(5000); crit_stop = false; }
     nominal_speed = NOMINAL_SPEED_WARNING;
     KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
   } else {
-    //if (crit_stop) { delay(5000); crit_stop = false; }
     nominal_speed = NOMINAL_SPEED;
     KSTEEP = (NOMINAL_SPEED - ESC_STOP);
   }
@@ -344,6 +362,7 @@ void handle_metro_stop() {
     Serial.print("*** BARCODE ACCEPTED *** \n");
     if (metro_stop_counter % STOP_EVERY_X_BARCODE == 0) {
       stop_motors(); update_motors();
+      set_led_color(C_CYAN);
       Serial.print("*** METRO STATION STOP *** \n");
       digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
       digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
@@ -362,6 +381,7 @@ void handle_metro_stop() {
   last_barcode_read_tick = millis();
 }
 
+/*
 void brake_and_stop_motors() {
   pixy.setLamp(0, 0); // Turn off both lamps
   motor_speed_left  = nominal_speed - KSTEEP * 0.5;
@@ -375,13 +395,10 @@ void brake_and_stop_motors() {
     delay(500);
   }
 }
-
+*/
 
 void stop_motors() {
-
-  digitalWrite(PIN_LED_GREEN, LOW);
-  digitalWrite(PIN_LED_RED, HIGH);
-  digitalWrite(PIN_LED_BLUE, LOW);
+  set_led_color(C_RED);
 
   //motor_speed_left = ESC_STOP;
   //motor_speed_right = ESC_STOP;
@@ -395,19 +412,17 @@ void stop_motors() {
 void suiviLigne()
 {
 
-  digitalWrite(PIN_LED_RED, LOW);
+  
   if (battery_warning) {
-    digitalWrite(PIN_LED_GREEN, LOW);
-    digitalWrite(PIN_LED_BLUE, HIGH);
+    set_led_color(C_BLUE);
   } else {
-    digitalWrite(PIN_LED_BLUE, LOW);
-    digitalWrite(PIN_LED_GREEN, HIGH);
+    set_led_color(C_GREEN);
   }
 
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
-  motor_speed_left_prev  = motor_speed_left_prev;
-  motor_speed_right_prev = motor_speed_right_prev;
+  motor_speed_left_prev  = motor_speed_left;
+  motor_speed_right_prev = motor_speed_right;
 
   if (linePosition == 0)
   {
@@ -430,17 +445,17 @@ void suiviLigne()
   // handle acceleration limits
   int acc_left = motor_speed_left - motor_speed_left_prev;
   if (acc_left > 0 && acc_left > +acc_limit_positive) {
-    motor_speed_left = motor_speed_left + acc_limit_positive;
+    motor_speed_left = motor_speed_left_prev + acc_limit_positive;
   }
   if (acc_left < 0 && acc_left < -acc_limit_negative) {
-    motor_speed_left = motor_speed_left - acc_limit_negative;
+    motor_speed_left = motor_speed_left_prev - acc_limit_negative;
   }
   int acc_right = motor_speed_right - motor_speed_right_prev;
   if (acc_right > 0 && acc_right > +acc_limit_positive) {
-    motor_speed_right = motor_speed_right + acc_limit_positive;
+    motor_speed_right = motor_speed_right_prev + acc_limit_positive;
   }
   if (acc_right < 0 && acc_right < -acc_limit_negative) {
-    motor_speed_right = motor_speed_right - acc_limit_negative;
+    motor_speed_right = motor_speed_right_prev - acc_limit_negative;
   }
 
 

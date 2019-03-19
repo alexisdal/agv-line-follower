@@ -94,6 +94,7 @@ long duration = 0;
 #define COMM_WARN     1
 #define COMM_CRIT     2
 #define COMM_ERR      3
+int lidar_state = COMM_ALL_OK;
 
 // metro stop
 unsigned long metro_stop_counter = 0;
@@ -106,7 +107,7 @@ unsigned long metro_stop_counter = 0;
 unsigned long last_barcode_read_tick = 0;
 
 
-enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_ORANGE, C_CYAN, C_WHITE}; 
+enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_LIME, C_CYAN, C_WHITE}; 
 #define NUM_COLORS 8
 enum c{_R, _G, _B}; 
 int rgb[NUM_COLORS][3] = {
@@ -115,7 +116,7 @@ int rgb[NUM_COLORS][3] = {
   { 0, 1, 0 },   // GREEN
   { 0, 0, 1 },   // BLUE
   { 1, 0, 1 },   // PURPLE
-  { 1, 1, 0 },   // ORANGE
+  { 1, 1, 0 },   // LIME
   { 0, 1, 1 },   // CYAN
   { 1, 1, 1 }    // WHITE
 };
@@ -142,35 +143,20 @@ void setup() {
   pinMode(PIN_LED_BLUE, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
   
-/*
-  pinMode(PIN_LED_TURN_LEFT, OUTPUT);
-  pinMode(PIN_LED_TURN_RIGHT, OUTPUT);
-  // blink on startup
-  for (int i = 0 ; i < 5  ; i++) {
-    digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
-    digitalWrite(PIN_LED_TURN_RIGHT, LOW);
-    delay(200);
-    digitalWrite(PIN_LED_TURN_LEFT,  LOW);
-    digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
-    delay(200);
-  }
-  digitalWrite(PIN_LED_TURN_LEFT,  LOW);
-  digitalWrite(PIN_LED_TURN_RIGHT, LOW);
-*/
-
   setup_motors();
-  stop_motors();
-  update_motors();
+  stop_motors(); update_motors();
+  set_led_color(C_GREEN);
 
   // stay stopped for a while (safe start 3sec)
-  int t = 1000 / NUM_COLORS;
-  for (int i = 0 ; i < 3 ; i++) {
+  int t = 1000 / NUM_COLORS * 3;
+  for (int i = 0 ; i < 1 ; i++) {
     for (int j = 0 ; j < NUM_COLORS ; j++) {
       set_led_color(j);    delay(t);
     }
   }
-
   set_led_color(C_GREEN);
+  delay(1000);
+
 
   // we need to initialize the pixy object
   pixy.init();
@@ -206,9 +192,9 @@ void loop() {
   current_tick = millis();
   handle_battery_level();
   //long handle_battery_level_ms = millis();
-  bumper_detection();
+  //bumper_detection();
   //long bumper_detection_ms = millis();
-  obstacle_detection();
+  //obstacle_detection();
   //long obstacle_detection_ms = millis();
   lecture_pixy_front();
   //long lecture_pixy_front_ms = millis();
@@ -245,8 +231,9 @@ void setup_motors()
 void bumper_detection() {
   if (digitalRead(PIN_LIDAR_BUMP) == 1)
   {
-    stop_motors(); update_motors(); delay(2000);
-
+    stop_motors(); update_motors(); 
+    set_led_color(C_RED);
+    delay(2000);
     while (digitalRead(PIN_LIDAR_BUMP) == 1) {
       delay(4000);
     }
@@ -281,14 +268,16 @@ int get_lidar_state()
 
 void obstacle_detection()
 {
-  int state = get_lidar_state();
-  if (state == COMM_ERR) {
+  lidar_state = get_lidar_state();
+  if (lidar_state == COMM_ERR) {
     stop_motors(); update_motors(); 
     set_led_color(C_PURPLE);
     delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
-  } else if (state == COMM_CRIT) {
-    stop_motors(); update_motors(); delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
-  } else if (state == COMM_WARN) {
+  } else if (lidar_state == COMM_CRIT) {
+    stop_motors(); update_motors(); 
+    set_led_color(C_RED);
+    delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
+  } else if (lidar_state == COMM_WARN) {
     nominal_speed = NOMINAL_SPEED_WARNING;
     KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
   } else {
@@ -317,7 +306,8 @@ void lecture_pixy_front()
     //Serial.print("\t");
     if (nbError > MAX_LINE_MISS) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
-      stop_motors();
+      stop_motors(); update_motors();
+      set_led_color(C_WHITE);
     } else {
       suiviLigne();
     }
@@ -398,13 +388,8 @@ void brake_and_stop_motors() {
 */
 
 void stop_motors() {
-  set_led_color(C_RED);
-
-  //motor_speed_left = ESC_STOP;
-  //motor_speed_right = ESC_STOP;
   motor_speed_left = 0;
   motor_speed_right = 0;
-  //Serial.print("\n\n **** STOP MOTORS **** \n\n");
 }
 
 
@@ -412,13 +397,11 @@ void stop_motors() {
 void suiviLigne()
 {
 
-  
   if (battery_warning) {
     set_led_color(C_BLUE);
   } else {
     set_led_color(C_GREEN);
   }
-
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
   motor_speed_left_prev  = motor_speed_left;

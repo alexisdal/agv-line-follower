@@ -15,6 +15,7 @@ Pixy2 pixy;
 // in firmware 6.4 a  nd wheels in the middle, we revert back to 6.2 configuration
 #define SERIAL_RIGHT Serial1
 #define SERIAL_LEFT Serial2
+#define SERIAL_WIFI Serial3
 #define DEBUGSERIAL Serial // usb serial
 
 struct bldcMeasure measuredVal; // to read battery voltage
@@ -25,13 +26,12 @@ bool battery_warning = false;
 float inpVoltages[NUM_READING_VOLTAGE];
 int voltage_index = 0;
 unsigned long last_voltage_check_in_ms = 0;
+unsigned long last_wifi_data_in_ms = 0;
 // with voltmeter I measure 39.89v with a full battery.
 //                          36.60v with nearly dead battery
 // with VESC averaging 100 values i read 37.02906504
 // let's use 37v for now
-#define VOLTAGE_WARNING_LEVEL 22.0 // 2x12v lead batteries
-
-
+#define VOLTAGE_WARNING_LEVEL 25.0 // 2x12v lead batteries
 
 #define FOUR_INCHES_WHEEL_GEARED
 //#define OVERBOARD_WHEEL
@@ -90,6 +90,11 @@ long duration = 0;
 #define PIN_LED_BLUE 6
 #define PIN_LED_GREEN 7
 
+// MP3 Grove
+#include <MP3Player_KT403A.h>
+#include <SoftwareSerial.h>
+SoftwareSerial mp3(2, 3);
+
 #define COMM_ALL_OK   0
 #define COMM_WARN     1
 #define COMM_CRIT     2
@@ -121,9 +126,6 @@ int rgb[NUM_COLORS][3] = {
   { 1, 1, 1 }    // WHITE
 };
 
-
-
-
 void setup() {
   DEBUGSERIAL.begin(115200);
 #ifdef DEBUG
@@ -131,6 +133,12 @@ void setup() {
   SetDebugSerialPort(&DEBUGSERIAL);
 #endif
 
+  // https://github.com/Seeed-Studio/Grove_Serial_MP3_Player_V2.0
+  mp3.begin(9600);
+  PlayLoop();
+
+  SERIAL_WIFI.begin(115200);
+  
   last_tick = millis();
 
   Serial.print("Starting...\n");
@@ -192,14 +200,15 @@ void loop() {
   current_tick = millis();
   handle_battery_level();
   //long handle_battery_level_ms = millis();
-  //bumper_detection();
+  bumper_detection();
   //long bumper_detection_ms = millis();
-  //obstacle_detection();
+  obstacle_detection();
   //long obstacle_detection_ms = millis();
   lecture_pixy_front();
   //long lecture_pixy_front_ms = millis();
   update_motors();
   //long update_motors_ms = millis();
+  wifi_send_data();
   long duration = current_tick - last_tick;
 
   //Serial.print("millis:\t");
@@ -388,6 +397,7 @@ void brake_and_stop_motors() {
 */
 
 void stop_motors() {
+  PlayPause();
   motor_speed_left = 0;
   motor_speed_right = 0;
 }
@@ -396,7 +406,7 @@ void stop_motors() {
 
 void suiviLigne()
 {
-
+  PlayResume();
   if (battery_warning) {
     set_led_color(C_BLUE);
   } else {
@@ -506,4 +516,16 @@ void handle_battery_level() {
 float get_battery_voltage() {
   VescUartGetValue(measuredVal, &SERIAL_LEFT);
   return measuredVal.inpVoltage;
+}
+
+
+void wifi_send_data() {
+  if (current_tick - last_wifi_data_in_ms > 30*1000) {
+    // http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=1&TACHOMETER=1&DUTYCYCLE=1&CURRENT_TICK=1&LAST_BARCODE_READ_TICK=1&COUNT_BARCODE1=0
+    String url = "http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=" + String(measuredVal.inpVoltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(measuredVal.dutyNow) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+    last_wifi_data_in_ms = current_tick;
+    SERIAL_WIFI.print(url);
+    SERIAL_WIFI.flush();
+    //Serial.print("Wifi send Data");
+  }
 }

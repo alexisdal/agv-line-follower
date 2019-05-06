@@ -21,17 +21,23 @@ Pixy2 pixy;
 struct bldcMeasure measuredVal; // to read battery voltage
 
 bool voltage_ready = false;
+bool duty_ready = false;
 bool battery_warning = false;
+
 #define NUM_READING_VOLTAGE 10
+#define NUM_READING_DUTY 10
 float inpVoltages[NUM_READING_VOLTAGE];
+float inpDutyCycle[NUM_READING_DUTY];
 int voltage_index = 0;
+int duty_index = 0;
 unsigned long last_voltage_check_in_ms = 0;
 unsigned long last_wifi_data_in_ms = 0;
+unsigned long last_duty_check_in_ms = 0;
 // with voltmeter I measure 39.89v with a full battery.
 //                          36.60v with nearly dead battery
 // with VESC averaging 100 values i read 37.02906504
 // let's use 37v for now
-#define VOLTAGE_WARNING_LEVEL 25.0 // 2x12v lead batteries
+#define VOLTAGE_WARNING_LEVEL 22 // 2x12v lead batteries
 
 #define FOUR_INCHES_WHEEL_GEARED
 //#define OVERBOARD_WHEEL
@@ -73,6 +79,7 @@ int nominal_speed = NOMINAL_SPEED;
 
 #define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
 
+bool motorstop=false;
 int linePosition = 0;
 unsigned long nbError = 9999;
 
@@ -80,14 +87,16 @@ long last_tick = 0;
 long current_tick = 0;
 long duration = 0;
 
+float average_voltage = 0.0;
+float average_duty = 0.0;
 //Lidar data
 #define PIN_LIDAR_DATA_0   10 //receive data from lidar arduino
 #define PIN_LIDAR_DATA_1   11 //receive data from lidar arduino
 #define PIN_LIDAR_BUMP     4 //receive default bumper signal
 
 // Bandeau led
-#define PIN_LED_RED 5
-#define PIN_LED_BLUE 6
+#define PIN_LED_RED 6//5
+#define PIN_LED_BLUE 5//6
 #define PIN_LED_GREEN 7
 
 // MP3 Grove
@@ -104,7 +113,7 @@ int lidar_state = COMM_ALL_OK;
 // metro stop
 unsigned long metro_stop_counter = 0;
 #define STOP_EVERY_X_BARCODE  3
-#define METRO_STATION_STOP_DURATION_IN_SECONDS 5
+#define METRO_STATION_STOP_DURATION_IN_SECONDS 10
 #define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
 #define PIN_LED_TURN_LEFT A14  // green
@@ -141,7 +150,7 @@ void setup() {
   
   last_tick = millis();
 
-  Serial.print("Starting...\n");
+  Serial.print("Starting v0.8.6 WiFi: WL:22 \n");
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
@@ -199,6 +208,7 @@ void set_led_color(color c) {
 void loop() {
   current_tick = millis();
   handle_battery_level();
+  
   //long handle_battery_level_ms = millis();
   bumper_detection();
   //long bumper_detection_ms = millis();
@@ -207,6 +217,7 @@ void loop() {
   lecture_pixy_front();
   //long lecture_pixy_front_ms = millis();
   update_motors();
+  handle_duty_level();
   //long update_motors_ms = millis();
   wifi_send_data();
   long duration = current_tick - last_tick;
@@ -280,7 +291,7 @@ void obstacle_detection()
   lidar_state = get_lidar_state();
   if (lidar_state == COMM_ERR) {
     stop_motors(); update_motors(); 
-    set_led_color(C_PURPLE);
+    set_led_color(C_LIME);
     delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
   } else if (lidar_state == COMM_CRIT) {
     stop_motors(); update_motors(); 
@@ -316,9 +327,9 @@ void lecture_pixy_front()
     if (nbError > MAX_LINE_MISS) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
       stop_motors(); update_motors();
-      set_led_color(C_WHITE);
+      set_led_color(C_PURPLE);
     } else {
-      suiviLigne();
+      suiviLigne();  
     }
   } else {
     //Serial.print("ok\t");
@@ -341,7 +352,7 @@ void lecture_pixy_front()
         Serial.print("*** METRO STATION *** \n");
         handle_metro_stop();
       }
-    }
+  }
 
     suiviLigne();
   }
@@ -397,15 +408,17 @@ void brake_and_stop_motors() {
 */
 
 void stop_motors() {
-  PlayPause();
+  //PlayPause();
   motor_speed_left = 0;
   motor_speed_right = 0;
+  motorstop=true;
 }
 
 
 
 void suiviLigne()
 {
+  motorstop=false;
   PlayResume();
   if (battery_warning) {
     set_led_color(C_BLUE);
@@ -497,18 +510,44 @@ void handle_battery_level() {
     inpVoltages[voltage_index++] = get_battery_voltage();
     if (voltage_index >= NUM_READING_VOLTAGE) {
       voltage_index = 0;
+      voltage_ready = true;
     }
-    float measure = 0.0;
-    float average = 0.0;
-    voltage_ready = true;
-    for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
-      measure = get_battery_voltage();
-      average += measure;
-      voltage_ready = voltage_ready && (measure > 0);
+    average_voltage = 0.0;
+    if (voltage_ready) {
+      for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
+        average_voltage += inpVoltages[i];
+      }
+      average_voltage /= NUM_READING_VOLTAGE;
     }
-    average /= NUM_READING_VOLTAGE;
-    if (voltage_ready && average <= VOLTAGE_WARNING_LEVEL) {
+    if (voltage_ready){
+      if (average_voltage <= VOLTAGE_WARNING_LEVEL) {
       battery_warning = true;
+      }else {battery_warning = false;}
+    }
+    
+  }
+}
+
+void handle_duty_level() {
+  
+  if(motorstop==false)
+  {
+    if (current_tick - last_duty_check_in_ms > 1000) {
+      last_duty_check_in_ms = current_tick;
+      inpDutyCycle[duty_index++] = measuredVal.dutyNow;
+      if (duty_index >= NUM_READING_DUTY) {
+      duty_index = 0;
+      duty_ready = true;
+      }
+      float duty_cycle = 0.0;
+      average_duty = 0.0;
+      if (duty_ready) {
+        for (int i = 0 ; i < NUM_READING_DUTY; i++) {
+          duty_cycle = inpDutyCycle[i];
+          average_duty += duty_cycle;
+        }
+        average_duty /= NUM_READING_DUTY;
+      }
     }
   }
 }
@@ -522,8 +561,9 @@ float get_battery_voltage() {
 void wifi_send_data() {
   if (current_tick - last_wifi_data_in_ms > 30*1000) {
     // http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=1&TACHOMETER=1&DUTYCYCLE=1&CURRENT_TICK=1&LAST_BARCODE_READ_TICK=1&COUNT_BARCODE1=0
-    String url = "http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=" + String(measuredVal.inpVoltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(measuredVal.dutyNow) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
-    last_wifi_data_in_ms = current_tick;
+    //String url = "http://192.168.1.20/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+    String url = "http://10.155.100.85/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+  last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();
     //Serial.print("Wifi send Data");

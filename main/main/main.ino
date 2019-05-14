@@ -1,3 +1,4 @@
+//VERSION 0.8.8: Stop when low battery
 
 // the setup function runs once when you press reset or power the board
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -23,9 +24,11 @@ struct bldcMeasure measuredVal; // to read battery voltage
 bool voltage_ready = false;
 bool duty_ready = false;
 bool battery_warning = false;
+bool battery_low = false;
 
 #define NUM_READING_VOLTAGE 10
 #define NUM_READING_DUTY 10
+
 float inpVoltages[NUM_READING_VOLTAGE];
 float inpDutyCycle[NUM_READING_DUTY];
 int voltage_index = 0;
@@ -33,11 +36,9 @@ int duty_index = 0;
 unsigned long last_voltage_check_in_ms = 0;
 unsigned long last_wifi_data_in_ms = 0;
 unsigned long last_duty_check_in_ms = 0;
-// with voltmeter I measure 39.89v with a full battery.
-//                          36.60v with nearly dead battery
-// with VESC averaging 100 values i read 37.02906504
-// let's use 37v for now
-#define VOLTAGE_WARNING_LEVEL 22 // 2x12v lead batteries
+
+#define VOLTAGE_WARNING_LEVEL 23.0 // 2x12v lead batteries
+#define VOLTAGE_STOP_LEVEL 22.5 
 
 #define FOUR_INCHES_WHEEL_GEARED
 //#define OVERBOARD_WHEEL
@@ -79,7 +80,7 @@ int nominal_speed = NOMINAL_SPEED;
 
 #define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
 
-bool motorstop=false;
+bool motorstop = false;
 int linePosition = 0;
 unsigned long nbError = 9999;
 
@@ -89,20 +90,11 @@ long duration = 0;
 
 float average_voltage = 0.0;
 float average_duty = 0.0;
+
 //Lidar data
 #define PIN_LIDAR_DATA_0   10 //receive data from lidar arduino
 #define PIN_LIDAR_DATA_1   11 //receive data from lidar arduino
 #define PIN_LIDAR_BUMP     4 //receive default bumper signal
-
-// Bandeau led
-#define PIN_LED_RED 6//5
-#define PIN_LED_BLUE 5//6
-#define PIN_LED_GREEN 7
-
-// MP3 Grove
-#include <MP3Player_KT403A.h>
-#include <SoftwareSerial.h>
-SoftwareSerial mp3(2, 3);
 
 #define COMM_ALL_OK   0
 #define COMM_WARN     1
@@ -110,14 +102,17 @@ SoftwareSerial mp3(2, 3);
 #define COMM_ERR      3
 int lidar_state = COMM_ALL_OK;
 
+// Bandeau led
+#define PIN_LED_RED 6//5
+#define PIN_LED_BLUE 5//6
+#define PIN_LED_GREEN 7
+
 // metro stop
 unsigned long metro_stop_counter = 0;
 #define STOP_EVERY_X_BARCODE  3
 #define METRO_STATION_STOP_DURATION_IN_SECONDS 10
 #define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
-#define PIN_LED_TURN_LEFT A14  // green
-#define PIN_LED_TURN_RIGHT A15 // red
 unsigned long last_barcode_read_tick = 0;
 
 
@@ -125,7 +120,7 @@ enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_LIME, C_CYAN, C_WHITE};
 #define NUM_COLORS 8
 enum c{_R, _G, _B}; 
 int rgb[NUM_COLORS][3] = {
-  { 0, 0, 0 },   // OFF (black?)
+  { 0, 0, 0 },   // OFF 
   { 1, 0, 0 },   // RED
   { 0, 1, 0 },   // GREEN
   { 0, 0, 1 },   // BLUE
@@ -141,16 +136,11 @@ void setup() {
   //SEtup debug port
   SetDebugSerialPort(&DEBUGSERIAL);
 #endif
-
-  // https://github.com/Seeed-Studio/Grove_Serial_MP3_Player_V2.0
-  mp3.begin(9600);
-  PlayLoop();
-
   SERIAL_WIFI.begin(115200);
   
   last_tick = millis();
 
-  Serial.print("Starting v0.8.6 WiFi: WL:22 \n");
+  Serial.print("Starting v0.8.8 Stop when low battery \n");
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
@@ -220,6 +210,7 @@ void loop() {
   handle_duty_level();
   //long update_motors_ms = millis();
   wifi_send_data();
+  
   long duration = current_tick - last_tick;
 
   //Serial.print("millis:\t");
@@ -313,7 +304,6 @@ void lecture_pixy_front()
   int32_t error;
   // int left, right;
   // char buf[96];
-
   // Get latest data from Pixy, including main vector, new intersections and new barcodes.
   res = pixy.line.getMainFeatures(); // using getMainFeature will give barcode only "once" (whereas getAllFeatures show barcodes all the time)
 
@@ -352,18 +342,19 @@ void lecture_pixy_front()
         Serial.print("*** METRO STATION *** \n");
         handle_metro_stop();
       }
-  }
+	  if (pixy.line.barcodes->m_code == 1) { // barcode 1 is for unloading boxes stop
+        Serial.print("*** STOP: UNLOADING BOXES *** \n");
+        unloading_stop();
+      }
+	  if (pixy.line.barcodes->m_code == 2) { // barcode 2 is stop: low battery 
+        Serial.print("*** STOP: LOW BATTERY *** \n");
+        batt_low_stop();
+      }
+    }
 
     suiviLigne();
   }
 
-  if (current_tick - last_barcode_read_tick > 1000) { // drop led for 1sec
-    digitalWrite(PIN_LED_TURN_LEFT,  LOW);
-    digitalWrite(PIN_LED_TURN_RIGHT, LOW);
-  } else {
-    digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
-    digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
-  }
 
 }
 
@@ -374,11 +365,8 @@ void handle_metro_stop() {
       stop_motors(); update_motors();
       set_led_color(C_CYAN);
       Serial.print("*** METRO STATION STOP *** \n");
-      digitalWrite(PIN_LED_TURN_LEFT,  HIGH);
-      digitalWrite(PIN_LED_TURN_RIGHT, HIGH);
+
       delay(1000 * METRO_STATION_STOP_DURATION_IN_SECONDS);
-      digitalWrite(PIN_LED_TURN_LEFT,  LOW);
-      digitalWrite(PIN_LED_TURN_RIGHT, LOW);
     }
     Serial.print(metro_stop_counter);
     Serial.print("\t");
@@ -391,6 +379,27 @@ void handle_metro_stop() {
   last_barcode_read_tick = millis();
 }
 
+void unloading_stop() {
+	if (current_tick - last_barcode_read_tick > 1000) {
+      stop_motors(); update_motors();
+      delay(15000);
+    }
+  last_barcode_read_tick = millis();
+}
+
+void batt_low_stop() {
+  if (battery_low) {
+	
+	stop_motors(); 
+	update_motors();
+	
+	while(1) {
+		set_led_color(C_BLUE);
+		delay(7000);
+		set_led_color(C_OFF);
+	}
+  }	
+}
 /*
 void brake_and_stop_motors() {
   pixy.setLamp(0, 0); // Turn off both lamps
@@ -408,7 +417,7 @@ void brake_and_stop_motors() {
 */
 
 void stop_motors() {
-  //PlayPause();
+  
   motor_speed_left = 0;
   motor_speed_right = 0;
   motorstop=true;
@@ -418,13 +427,15 @@ void stop_motors() {
 
 void suiviLigne()
 {
-  motorstop=false;
-  PlayResume();
+  motorstop = false;
+
   if (battery_warning) {
     set_led_color(C_BLUE);
   } else {
     set_led_color(C_GREEN);
   }
+
+  
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
   motor_speed_left_prev  = motor_speed_left;
@@ -475,6 +486,7 @@ void suiviLigne()
 
 
 bool test_spd = false;
+
 void update_motors() {
   if (test_spd) {
     int test_speed = 600;
@@ -505,51 +517,59 @@ void moveMotorRight(int motor_speed) {
 
 void handle_battery_level() {
   // current_tick and last_tick are available. in millis
-  if (current_tick - last_voltage_check_in_ms > 1000) {
-    last_voltage_check_in_ms = current_tick;
-    inpVoltages[voltage_index++] = get_battery_voltage();
-    if (voltage_index >= NUM_READING_VOLTAGE) {
-      voltage_index = 0;
-      voltage_ready = true;
-    }
-    average_voltage = 0.0;
-    if (voltage_ready) {
-      for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
-        average_voltage += inpVoltages[i];
-      }
-      average_voltage /= NUM_READING_VOLTAGE;
-    }
-    if (voltage_ready){
-      if (average_voltage <= VOLTAGE_WARNING_LEVEL) {
-      battery_warning = true;
-      }else {battery_warning = false;}
-    }
-    
+	if (current_tick - last_voltage_check_in_ms > 1000) {
+		last_voltage_check_in_ms = current_tick;
+		inpVoltages[voltage_index++] = get_battery_voltage();
+		if (voltage_index >= NUM_READING_VOLTAGE) {
+			voltage_index = 0;
+			voltage_ready = true;
+		}
+		average_voltage = 0.0;
+		if (voltage_ready) {
+			for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
+			  average_voltage += inpVoltages[i];
+			}
+			average_voltage /= NUM_READING_VOLTAGE;
+		}
+		if (voltage_ready && (average_voltage <= VOLTAGE_WARNING_LEVEL)){
+				battery_warning = true;
+			} else{
+			  battery_warning = false;  
+			}
+			if (voltage_ready && (average_voltage <= VOLTAGE_STOP_LEVEL)) {
+				battery_low = true;	
+			}
   }
 }
 
 void handle_duty_level() {
   
-  if(motorstop==false)
-  {
-    if (current_tick - last_duty_check_in_ms > 1000) {
-      last_duty_check_in_ms = current_tick;
-      inpDutyCycle[duty_index++] = measuredVal.dutyNow;
-      if (duty_index >= NUM_READING_DUTY) {
-      duty_index = 0;
-      duty_ready = true;
-      }
-      float duty_cycle = 0.0;
-      average_duty = 0.0;
-      if (duty_ready) {
-        for (int i = 0 ; i < NUM_READING_DUTY; i++) {
-          duty_cycle = inpDutyCycle[i];
-          average_duty += duty_cycle;
-        }
-        average_duty /= NUM_READING_DUTY;
-      }
-    }
-  }
+	if(motorstop==false)
+	{
+		if (current_tick - last_duty_check_in_ms > 1000) 
+		{
+			last_duty_check_in_ms = current_tick;
+			inpDutyCycle[duty_index++] = measuredVal.dutyNow;
+     
+			if (duty_index >= NUM_READING_DUTY) 
+			{
+			duty_index = 0;
+			duty_ready = true;
+			}
+			float duty_cycle = 0.0;
+			average_duty = 0.0;
+     
+			if (duty_ready) 
+			{
+				for (int i = 0 ; i < NUM_READING_DUTY; i++) 
+				{
+				  duty_cycle = inpDutyCycle[i];
+				  average_duty += duty_cycle;
+				}
+				average_duty /= NUM_READING_DUTY;
+			}
+		}
+	}
 }
 
 float get_battery_voltage() {
@@ -563,7 +583,7 @@ void wifi_send_data() {
     // http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=1&TACHOMETER=1&DUTYCYCLE=1&CURRENT_TICK=1&LAST_BARCODE_READ_TICK=1&COUNT_BARCODE1=0
     //String url = "http://192.168.1.20/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
     String url = "http://10.155.100.85/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
-  last_wifi_data_in_ms = current_tick;
+	last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();
     //Serial.print("Wifi send Data");

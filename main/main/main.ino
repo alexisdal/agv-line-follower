@@ -1,47 +1,27 @@
-//VERSION 0.8.8: Stop when low battery
+#define VERSION "0.8.9" // Stop when low battery + save kms
 
 // the setup function runs once when you press reset or power the board
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
 // #include Config.h out in VescUart.h
 // This lib version tested with vesc fw 3.38 and 3.40 on teensy 3.2 and arduino uno
 
-//Include libraries copied from VESC
+//VESC
 #include <VescUart.h>
 #include <datatypes.h>
 
+//Pixy 
 #include <Pixy2.h>
-Pixy2 pixy;
 
-//#define DEBUG
-// in firmware 6.4 a  nd wheels in the middle, we revert back to 6.2 configuration
+//Serial ports
 #define SERIAL_RIGHT Serial1
 #define SERIAL_LEFT Serial2
 #define SERIAL_WIFI Serial3
-#define DEBUGSERIAL Serial // usb serial
-
-struct bldcMeasure measuredVal; // to read battery voltage
-
-bool voltage_ready = false;
-bool duty_ready = false;
-bool battery_warning = false;
-bool battery_low = false;
-
-#define NUM_READING_VOLTAGE 10
-#define NUM_READING_DUTY 10
-
-float inpVoltages[NUM_READING_VOLTAGE];
-float inpDutyCycle[NUM_READING_DUTY];
-int voltage_index = 0;
-int duty_index = 0;
-unsigned long last_voltage_check_in_ms = 0;
-unsigned long last_wifi_data_in_ms = 0;
-unsigned long last_duty_check_in_ms = 0;
 
 #define VOLTAGE_WARNING_LEVEL 23.0 // 2x12v lead batteries
 #define VOLTAGE_STOP_LEVEL 22.5 
 
 #define FOUR_INCHES_WHEEL_GEARED
-//#define OVERBOARD_WHEEL
+/*#define OVERBOARD_WHEEL
 
 #ifdef OVERBOARD_WHEEL
 #define ESC_MIN -2500
@@ -49,7 +29,7 @@ unsigned long last_duty_check_in_ms = 0;
 #define ESC_MAX 2500
 #define NOMINAL_SPEED 900
 #define NOMINAL_SPEED_WARNING 550
-#endif
+#endif*/
 
 #ifdef FOUR_INCHES_WHEEL_GEARED
 #define ESC_MIN -5000
@@ -59,12 +39,80 @@ unsigned long last_duty_check_in_ms = 0;
 #define NOMINAL_SPEED_WARNING 1500
 #endif
 
-
-
 #define OBSERVED_FPS 60.0 // how much fps i have measure in my console given everything i do
+#define MAX_LINE_MISS 90 // at 60fps 
+#define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
+
+//Lidar data
+#define PIN_LIDAR_DATA_0   10 //receive data from lidar arduino
+#define PIN_LIDAR_DATA_1   11 //receive data from lidar arduino
+#define PIN_LIDAR_BUMP     4 //receive default bumper signal
+
+#define COMM_ALL_OK   0
+#define COMM_WARN     1
+#define COMM_CRIT     2
+#define COMM_ERR      3
+
+//Handle km 
+#include <EEPROM.h>
+#define FORCE_EEPROM_RESET 0
+
+#define MM_PER_TACHO_UNIT  1.377467548  // 260 tacho per rev / 114 mm diamter / 358.11 mm circumference
+#define EE_ADDRESS 0
+
+#define NUM_READING_VOLTAGE 10
+#define NUM_READING_DUTY 10
+
+// Bandeau led
+#define PIN_LED_RED 6
+#define PIN_LED_BLUE 5
+#define PIN_LED_GREEN 7
+
+#define NUM_COLORS 8
+
+//Barcode Stops
+#define STOP_EVERY_X_BARCODE  3
+#define METRO_STATION_STOP_DURATION_IN_SECONDS 10
+#define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
+
+Pixy2 pixy;
+
+struct dataInEEPROM {
+  char fw_version[10];
+  long km; // current km value (will be incremeted by 1 for each 1000m
+  float meters;
+};
+
+dataInEEPROM mydataInEEPROM;
+
+float meters_at_startup = 0.0f;
+
+struct bldcMeasure measuredValLeft; // to read battery voltage, tachometer, etc...
+struct bldcMeasure measuredValRight;
+
+bool voltage_ready = false;
+bool duty_ready = false;
+bool battery_warning = false;
+bool battery_low = false;
+
+float inpVoltages[NUM_READING_VOLTAGE];
+float inpDutyCycle[NUM_READING_DUTY];
+int voltage_index = 0;
+int duty_index = 0;
+
+float average_voltage = 0.0;
+float average_duty = 0.0;
+
+unsigned long last_voltage_check_in_ms = 0;
+unsigned long last_wifi_data_in_ms = 0;
+unsigned long last_duty_check_in_ms = 0;
+
+long last_tick = 0;
+long current_tick = 0;
+long duration = 0;
+
 float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 0.25 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
 float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
-#define MAX_LINE_MISS 90 // at 60fps 
 
 //#define KSTEEP 1.2 //0.8
 float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
@@ -78,47 +126,20 @@ int motor_speed_right_prev = 0;
 
 int nominal_speed = NOMINAL_SPEED;
 
-#define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
-
 bool motorstop = false;
 int linePosition = 0;
 unsigned long nbError = 9999;
 
-long last_tick = 0;
-long current_tick = 0;
-long duration = 0;
-
-float average_voltage = 0.0;
-float average_duty = 0.0;
-
-//Lidar data
-#define PIN_LIDAR_DATA_0   10 //receive data from lidar arduino
-#define PIN_LIDAR_DATA_1   11 //receive data from lidar arduino
-#define PIN_LIDAR_BUMP     4 //receive default bumper signal
-
-#define COMM_ALL_OK   0
-#define COMM_WARN     1
-#define COMM_CRIT     2
-#define COMM_ERR      3
 int lidar_state = COMM_ALL_OK;
-
-// Bandeau led
-#define PIN_LED_RED 6//5
-#define PIN_LED_BLUE 5//6
-#define PIN_LED_GREEN 7
 
 // metro stop
 unsigned long metro_stop_counter = 0;
-#define STOP_EVERY_X_BARCODE  3
-#define METRO_STATION_STOP_DURATION_IN_SECONDS 10
-#define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
 unsigned long last_barcode_read_tick = 0;
 
-
 enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_LIME, C_CYAN, C_WHITE}; 
-#define NUM_COLORS 8
 enum c{_R, _G, _B}; 
+
 int rgb[NUM_COLORS][3] = {
   { 0, 0, 0 },   // OFF 
   { 1, 0, 0 },   // RED
@@ -131,16 +152,14 @@ int rgb[NUM_COLORS][3] = {
 };
 
 void setup() {
-  DEBUGSERIAL.begin(115200);
-#ifdef DEBUG
-  //SEtup debug port
-  SetDebugSerialPort(&DEBUGSERIAL);
-#endif
+	Serial.begin(115200);
   SERIAL_WIFI.begin(115200);
   
   last_tick = millis();
 
-  Serial.print("Starting v0.8.8 Stop when low battery \n");
+  Serial.print("Starting v");
+  Serial.print(VERSION);
+  Serial.print("\n");
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
@@ -152,43 +171,97 @@ void setup() {
   
   setup_motors();
   stop_motors(); update_motors();
+  
   set_led_color(C_GREEN);
 
-  // stay stopped for a while (safe start 3sec)
+  read_prompt();
+  
+  //stay stopped for a while (safe start 3sec)
   int t = 1000 / NUM_COLORS * 3;
   for (int i = 0 ; i < 1 ; i++) {
     for (int j = 0 ; j < NUM_COLORS ; j++) {
-      set_led_color(j);    delay(t);
+      set_led_color(j); delay(t);
     }
   }
   set_led_color(C_GREEN);
   delay(1000);
 
-
-  // we need to initialize the pixy object
+  //we need to initialize the pixy object
   pixy.init();
   pixy.setLED(255, 255, 255); // white
-  // Change to line tracking program
+  
+  //Change to line tracking program
   pixy.changeProg("line");
 
-  // initialize the voltage checks
+  //initialize the voltage checks
   for (int i = 0 ; i < NUM_READING_VOLTAGE ; i++) {
     inpVoltages[i] = -1.0;
   }
 
-
   current_tick = millis();
   delay(60);
+  
   pixy.setLED(255, 255, 255); // off
+  
   pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
-  //Serial.print("NOMINAL_SPEED:"); Serial.print(NOMINAL_SPEED); Serial.print("\n");
-  //Serial.print("acc_limit_positive:"); Serial.print(acc_limit_positive); Serial.print("\n");
-  //Serial.print("acc_limit_positive:"); Serial.print(acc_limit_negative); Serial.print("\n");
-  //while(1) { ;}
-
+  
   Serial.print("init done\n");
 }
 
+void read_prompt () {
+ // read values in memory
+  EEPROM.get(EE_ADDRESS, mydataInEEPROM); 
+  
+  // reset if EEPROM is unexpected
+if ((mydataInEEPROM.fw_version[0] < '0' && mydataInEEPROM.fw_version[0] > '5') || FORCE_EEPROM_RESET) {
+    Serial.print("invalid data... resetting EEPROM!\n");
+    strncpy(mydataInEEPROM.fw_version, VERSION, 10);
+    mydataInEEPROM.km = 0L;
+    EEPROM.put(EE_ADDRESS, mydataInEEPROM); 
+  }
+  Serial.print("Version:");
+  Serial.print(mydataInEEPROM.fw_version);
+  Serial.print("\t");
+  Serial.print("km:");
+  Serial.print(mydataInEEPROM.km);
+  Serial.print("\n");
+  Serial.print("m:");
+  Serial.print(mydataInEEPROM.meters);
+  Serial.print("\n");
+}
+
+void update_measured_values(){
+  VescUartGetValue(measuredValRight, &SERIAL_RIGHT);
+  VescUartGetValue(measuredValLeft, &SERIAL_LEFT);
+}
+
+float get_meters_since_last_boot() {
+  // update_measured_values() must have been called beforehand
+  long mytacho = measuredValLeft.tachometer/2 + measuredValRight.tachometer/2;
+  float meters_since_last_boot = (float)(mytacho) * MM_PER_TACHO_UNIT / 1000.0f;
+  mydataInEEPROM.meters =  meters_since_last_boot - meters_at_startup;
+  if (mydataInEEPROM.meters > 250.0) {
+	EEPROM.put(EE_ADDRESS, mydataInEEPROM.meters);
+	Serial.print(mydataInEEPROM.meters);
+	Serial.print("\n");
+  }
+  return meters_since_last_boot;
+}
+
+long handle_kmeters(){
+  float current_meters = get_meters_since_last_boot();
+  Serial.print(current_meters);
+  if (current_meters - meters_at_startup > 1000.0) {
+    meters_at_startup += 1000;
+    mydataInEEPROM.km += 1;
+    EEPROM.put(EE_ADDRESS, mydataInEEPROM.km); 
+    Serial.print("\t");
+    Serial.print(mydataInEEPROM.km);
+    Serial.print("\t");
+    Serial.print("update");
+    
+  }
+}
 void set_led_color(color c) {
   digitalWrite(PIN_LED_RED   , rgb[c][_R]);
   digitalWrite(PIN_LED_GREEN,  rgb[c][_G]);
@@ -197,18 +270,23 @@ void set_led_color(color c) {
 
 void loop() {
   current_tick = millis();
+  
+  update_measured_values();
+  
+  handle_kmeters();
+  
   handle_battery_level();
   
-  //long handle_battery_level_ms = millis();
   bumper_detection();
-  //long bumper_detection_ms = millis();
+  
   obstacle_detection();
-  //long obstacle_detection_ms = millis();
+  
   lecture_pixy_front();
-  //long lecture_pixy_front_ms = millis();
+  
   update_motors();
+  
   handle_duty_level();
-  //long update_motors_ms = millis();
+  
   wifi_send_data();
   
   long duration = current_tick - last_tick;
@@ -220,11 +298,11 @@ void loop() {
   //Serial.print("pix:");Serial.print(obstacle_detection_ms - lecture_pixy_front_ms); Serial.print("\t");
   //Serial.print("mtr:");Serial.print(lecture_pixy_front_ms - update_motors_ms); Serial.print("\t");
 
-  //Serial.print(duration );
-  //Serial.print("\t");
-  //float hz = 1000.0 / ((float)(duration));
-  //Serial.print(hz);
-  //Serial.print("\n");
+  Serial.print(duration );
+  Serial.print("\t");
+  float hz = 1000.0 / ((float)(duration));
+  Serial.print(hz);
+  Serial.print("\n");
 
   last_tick = current_tick;
 
@@ -341,15 +419,21 @@ void lecture_pixy_front()
       if (pixy.line.barcodes->m_code == 0) { // barcode 0 is metro station
         Serial.print("*** METRO STATION *** \n");
         handle_metro_stop();
-      }
-	  if (pixy.line.barcodes->m_code == 1) { // barcode 1 is for unloading boxes stop
+      } else if (pixy.line.barcodes->m_code == 1) { // barcode 1 is for unloading boxes stop
         Serial.print("*** STOP: UNLOADING BOXES *** \n");
         unloading_stop();
-      }
-	  if (pixy.line.barcodes->m_code == 2) { // barcode 2 is stop: low battery 
+      } else if (pixy.line.barcodes->m_code == 2) { // barcode 2 is stop: low battery 
         Serial.print("*** STOP: LOW BATTERY *** \n");
         batt_low_stop();
-      }
+      }/* else {
+        stop_motors(); update_motors();
+        while(1) {
+          set_led_color(C_PURPLE);          
+          delay(200);
+          set_led_color(C_WHITE);          
+          delay(200);
+        }
+      }*/
     }
 
     suiviLigne();
@@ -423,8 +507,6 @@ void stop_motors() {
   motorstop=true;
 }
 
-
-
 void suiviLigne()
 {
   motorstop = false;
@@ -435,7 +517,6 @@ void suiviLigne()
     set_led_color(C_GREEN);
   }
 
-  
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
   motor_speed_left_prev  = motor_speed_left;
@@ -475,15 +556,7 @@ void suiviLigne()
     motor_speed_right = motor_speed_right_prev - acc_limit_negative;
   }
 
-
-
-  //Serial.print(motor_speed_left);
-  //Serial.print("\t");
-  //Serial.print(motor_speed_right);
-  //Serial.print("\n");
-
 }
-
 
 bool test_spd = false;
 
@@ -500,18 +573,14 @@ void update_motors() {
 void moveMotorLeft(int motor_speed) {
   if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
-  //myservo_left.writeMicroseconds(motor_speed);
+
   VescUartSetRPM(motor_speed, &SERIAL_LEFT);
-  //Serial.print(motor_speed);
-  //Serial.print("\t");
 }
 void moveMotorRight(int motor_speed) {
   if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
-  //myservo_right.writeMicroseconds(motor_speed);
+  
   VescUartSetRPM(motor_speed, &SERIAL_RIGHT);
-  //Serial.print(motor_speed);
-  //Serial.print("\t");
 }
 
 
@@ -519,7 +588,7 @@ void handle_battery_level() {
   // current_tick and last_tick are available. in millis
 	if (current_tick - last_voltage_check_in_ms > 1000) {
 		last_voltage_check_in_ms = current_tick;
-		inpVoltages[voltage_index++] = get_battery_voltage();
+		inpVoltages[voltage_index++] = (measuredValLeft.inpVoltage/2 + measuredValRight.inpVoltage/2);
 		if (voltage_index >= NUM_READING_VOLTAGE) {
 			voltage_index = 0;
 			voltage_ready = true;
@@ -549,7 +618,7 @@ void handle_duty_level() {
 		if (current_tick - last_duty_check_in_ms > 1000) 
 		{
 			last_duty_check_in_ms = current_tick;
-			inpDutyCycle[duty_index++] = measuredVal.dutyNow;
+			inpDutyCycle[duty_index++] = (measuredValLeft.dutyNow/2 + measuredValRight.dutyNow/2);
      
 			if (duty_index >= NUM_READING_DUTY) 
 			{
@@ -572,20 +641,13 @@ void handle_duty_level() {
 	}
 }
 
-float get_battery_voltage() {
-  VescUartGetValue(measuredVal, &SERIAL_LEFT);
-  return measuredVal.inpVoltage;
-}
-
-
 void wifi_send_data() {
   if (current_tick - last_wifi_data_in_ms > 30*1000) {
-    // http://192.168.1.20/cgi-bin/insert_magni.py?NAME=A&VOLTAGE=1&TACHOMETER=1&DUTYCYCLE=1&CURRENT_TICK=1&LAST_BARCODE_READ_TICK=1&COUNT_BARCODE1=0
-    //String url = "http://192.168.1.20/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
-    String url = "http://10.155.100.85/cgi-bin/insert_magni.py?NAME=MagniLab&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredVal.tachometer) + "&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+    
+    String url = "http://10.155.100.74/cgi-bin/insert_magni.py?NAME=Mnwlk3r&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredValLeft.tachometer) + "&KM=" + String(mydataInEEPROM.km) +"&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
 	last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();
-    //Serial.print("Wifi send Data");
+    
   }
 }

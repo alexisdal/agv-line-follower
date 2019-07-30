@@ -73,6 +73,7 @@
 //Barcode Stops
 #define STOP_EVERY_X_BARCODE  3
 #define METRO_STATION_STOP_DURATION_IN_SECONDS 10
+#define PORT_STOP_DURATION_IN_SECONDS 20
 #define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
 Pixy2 pixy;
@@ -157,9 +158,9 @@ void setup() {
   
   last_tick = millis();
 
-  Serial.print("Starting v");
-  Serial.print(VERSION);
-  Serial.print("\n");
+  //Serial.print("Starting v");
+  //Serial.print(VERSION);
+  //Serial.print("\n");
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
@@ -205,7 +206,7 @@ void setup() {
   
   pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
   
-  Serial.print("init done\n");
+  //Serial.print("init done\n");
 }
 
 void read_prompt () {
@@ -214,20 +215,20 @@ void read_prompt () {
   
   // reset if EEPROM is unexpected
 if ((mydataInEEPROM.fw_version[0] < '0' && mydataInEEPROM.fw_version[0] > '5') || FORCE_EEPROM_RESET) {
-    Serial.print("invalid data... resetting EEPROM!\n");
+    //Serial.print("invalid data... resetting EEPROM!\n");
     strncpy(mydataInEEPROM.fw_version, VERSION, 10);
     mydataInEEPROM.km = 0L;
     EEPROM.put(EE_ADDRESS, mydataInEEPROM); 
   }
-  Serial.print("Version:");
-  Serial.print(mydataInEEPROM.fw_version);
-  Serial.print("\t");
-  Serial.print("km:");
-  Serial.print(mydataInEEPROM.km);
-  Serial.print("\n");
-  Serial.print("m:");
-  Serial.print(mydataInEEPROM.meters);
-  Serial.print("\n");
+  //Serial.print("Version:");
+  //Serial.print(mydataInEEPROM.fw_version);
+  //Serial.print("\t");
+  //Serial.print("km:");
+  //Serial.print(mydataInEEPROM.km);
+  //Serial.print("\n");
+  //Serial.print("m:");
+  //Serial.print(mydataInEEPROM.meters);
+  //Serial.print("\n");
 }
 
 void update_measured_values(){
@@ -242,23 +243,23 @@ float get_meters_since_last_boot() {
   mydataInEEPROM.meters =  meters_since_last_boot - meters_at_startup;
   if (mydataInEEPROM.meters > 250.0) {
 	EEPROM.put(EE_ADDRESS, mydataInEEPROM.meters);
-	Serial.print(mydataInEEPROM.meters);
-	Serial.print("\n");
+	//Serial.print(mydataInEEPROM.meters);
+	//Serial.print("\n");
   }
   return meters_since_last_boot;
 }
 
 long handle_kmeters(){
   float current_meters = get_meters_since_last_boot();
-  Serial.print(current_meters);
+  //Serial.print(current_meters);
   if (current_meters - meters_at_startup > 1000.0) {
     meters_at_startup += 1000;
     mydataInEEPROM.km += 1;
     EEPROM.put(EE_ADDRESS, mydataInEEPROM.km); 
-    Serial.print("\t");
-    Serial.print(mydataInEEPROM.km);
-    Serial.print("\t");
-    Serial.print("update");
+    //Serial.print("\t");
+    //Serial.print(mydataInEEPROM.km);
+    //Serial.print("\t");
+    //Serial.print("update");
     
   }
 }
@@ -298,10 +299,11 @@ void loop() {
   //Serial.print("pix:");Serial.print(obstacle_detection_ms - lecture_pixy_front_ms); Serial.print("\t");
   //Serial.print("mtr:");Serial.print(lecture_pixy_front_ms - update_motors_ms); Serial.print("\t");
 
+  Serial.print("Duration: ");
   Serial.print(duration );
-  Serial.print("\t");
-  float hz = 1000.0 / ((float)(duration));
-  Serial.print(hz);
+  //Serial.print("\t");
+  //float hz = 1000.0 / ((float)(duration));
+  //Serial.print(hz);
   Serial.print("\n");
 
   last_tick = current_tick;
@@ -417,13 +419,13 @@ void lecture_pixy_front()
     if (res & LINE_BARCODE)
     {
       if (pixy.line.barcodes->m_code == 0) { // barcode 0 is metro station
-        Serial.print("*** METRO STATION *** \n");
+        //Serial.print("*** METRO STATION *** \n");
         handle_metro_stop();
       } else if (pixy.line.barcodes->m_code == 1) { // barcode 1 is for unloading boxes stop
-        Serial.print("*** STOP: UNLOADING BOXES *** \n");
+        //Serial.print("*** STOP: UNLOADING BOXES *** \n");
         unloading_stop();
       } else if (pixy.line.barcodes->m_code == 2) { // barcode 2 is stop: low battery 
-        Serial.print("*** STOP: LOW BATTERY *** \n");
+        //Serial.print("*** STOP: LOW BATTERY *** \n");
         batt_low_stop();
       }/* else {
         stop_motors(); update_motors();
@@ -444,20 +446,20 @@ void lecture_pixy_front()
 
 void handle_metro_stop() {
   if (current_tick - last_barcode_read_tick > 1000) {
-    Serial.print("*** BARCODE ACCEPTED *** \n");
+    //Serial.print("*** BARCODE ACCEPTED *** \n");
     if (metro_stop_counter % STOP_EVERY_X_BARCODE == 0) {
       stop_motors(); update_motors();
       set_led_color(C_CYAN);
-      Serial.print("*** METRO STATION STOP *** \n");
+      //Serial.print("*** METRO STATION STOP *** \n");
 
       delay(1000 * METRO_STATION_STOP_DURATION_IN_SECONDS);
     }
-    Serial.print(metro_stop_counter);
-    Serial.print("\t");
-    Serial.print(STOP_EVERY_X_BARCODE);
-    Serial.print("\t");
-    Serial.print(metro_stop_counter % STOP_EVERY_X_BARCODE);
-    Serial.print("\n");
+    //Serial.print(metro_stop_counter);
+    //Serial.print("\t");
+    //Serial.print(STOP_EVERY_X_BARCODE);
+    //Serial.print("\t");
+    //Serial.print(metro_stop_counter % STOP_EVERY_X_BARCODE);
+    //Serial.print("\n");
     metro_stop_counter++;
   }
   last_barcode_read_tick = millis();
@@ -466,7 +468,7 @@ void handle_metro_stop() {
 void unloading_stop() {
 	if (current_tick - last_barcode_read_tick > 1000) {
       stop_motors(); update_motors();
-      delay(15000);
+      delay(1000 * PORT_STOP_DURATION_IN_SECONDS);
     }
   last_barcode_read_tick = millis();
 }
@@ -478,10 +480,11 @@ void batt_low_stop() {
 	update_motors();
 	
 	while(1) {
-		set_led_color(C_BLUE);
-		delay(7000);
-		set_led_color(C_OFF);
-	}
+	  set_led_color(C_BLUE);
+	  delay(7000);
+      set_led_color(C_OFF);
+	  delay(7000);
+    }
   }	
 }
 /*
@@ -556,6 +559,19 @@ void suiviLigne()
     motor_speed_right = motor_speed_right_prev - acc_limit_negative;
   }
 
+  Serial.print("avgMotorCurrent Left: ");
+  Serial.print(measuredValLeft.avgMotorCurrent);
+  Serial.print("\t");
+  Serial.print("avgMotorCurrent Right: ");
+  Serial.print(measuredValRight.avgMotorCurrent);
+  Serial.print("\n");
+  
+  Serial.print("avgInputCurrent Left: ");
+  Serial.print(measuredValLeft.avgInputCurrent);
+  Serial.print("\t");
+  Serial.print("avgInputCurrent Right: ");
+  Serial.print(measuredValRight.avgInputCurrent);
+  Serial.print("\n");
 }
 
 bool test_spd = false;
@@ -643,8 +659,8 @@ void handle_duty_level() {
 
 void wifi_send_data() {
   if (current_tick - last_wifi_data_in_ms > 30*1000) {
-    
-    String url = "http://10.155.100.74/cgi-bin/insert_magni.py?NAME=Mnwlk3r&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredValLeft.tachometer) + "&KM=" + String(mydataInEEPROM.km) +"&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+    //adresse IP au 29/07: 10.155.100.89
+    String url = "http://10.155.100.89/cgi-bin/insert_magni.py?NAME=AGV1&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredValLeft.tachometer) + "&KM=" + String(mydataInEEPROM.km) +"&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
 	last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();

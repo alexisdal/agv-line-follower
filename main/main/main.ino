@@ -1,4 +1,4 @@
-#define VERSION "0.8.9" // Stop when low battery + save kms
+#define VERSION "0.8.9.1" // No more metro stops
 
 // the setup function runs once when you press reset or power the board
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -73,7 +73,7 @@
 //Barcode Stops
 #define STOP_EVERY_X_BARCODE  3
 #define METRO_STATION_STOP_DURATION_IN_SECONDS 10
-#define PORT_STOP_DURATION_IN_SECONDS 20
+#define PORT_STOP_DURATION_IN_SECONDS 30
 #define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
 
 Pixy2 pixy;
@@ -86,6 +86,13 @@ struct dataInEEPROM {
 
 dataInEEPROM mydataInEEPROM;
 
+struct errorLog {
+  int LINE_MISSING;
+  int FALSE_OBS;
+  int BUMPER_DET;
+};
+
+errorLog ErrorLog ;
 float meters_at_startup = 0.0f;
 
 struct bldcMeasure measuredValLeft; // to read battery voltage, tachometer, etc...
@@ -153,7 +160,7 @@ int rgb[NUM_COLORS][3] = {
 };
 
 void setup() {
-	Serial.begin(115200);
+  Serial.begin(115200);
   SERIAL_WIFI.begin(115200);
   
   last_tick = millis();
@@ -176,6 +183,10 @@ void setup() {
   set_led_color(C_GREEN);
 
   read_prompt();
+  
+  ErrorLog.FALSE_OBS = 0;
+  ErrorLog.LINE_MISSING = 0;
+  ErrorLog.BUMPER_DET = 0;
   
   //stay stopped for a while (safe start 3sec)
   int t = 1000 / NUM_COLORS * 3;
@@ -242,9 +253,9 @@ float get_meters_since_last_boot() {
   float meters_since_last_boot = (float)(mytacho) * MM_PER_TACHO_UNIT / 1000.0f;
   mydataInEEPROM.meters =  meters_since_last_boot - meters_at_startup;
   if (mydataInEEPROM.meters > 250.0) {
-	EEPROM.put(EE_ADDRESS, mydataInEEPROM.meters);
-	//Serial.print(mydataInEEPROM.meters);
-	//Serial.print("\n");
+  EEPROM.put(EE_ADDRESS, mydataInEEPROM.meters);
+  //Serial.print(mydataInEEPROM.meters);
+  //Serial.print("\n");
   }
   return meters_since_last_boot;
 }
@@ -325,6 +336,7 @@ void bumper_detection() {
     stop_motors(); update_motors(); 
     set_led_color(C_RED);
     delay(2000);
+    ErrorLog.BUMPER_DET++;
     while (digitalRead(PIN_LIDAR_BUMP) == 1) {
       delay(4000);
     }
@@ -368,6 +380,7 @@ void obstacle_detection()
     stop_motors(); update_motors(); 
     set_led_color(C_RED);
     delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000);
+    ErrorLog.FALSE_OBS++;
   } else if (lidar_state == COMM_WARN) {
     nominal_speed = NOMINAL_SPEED_WARNING;
     KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
@@ -398,6 +411,7 @@ void lecture_pixy_front()
     {
       stop_motors(); update_motors();
       set_led_color(C_PURPLE);
+      ErrorLog.LINE_MISSING++;
     } else {
       suiviLigne();  
     }
@@ -420,7 +434,7 @@ void lecture_pixy_front()
     {
       if (pixy.line.barcodes->m_code == 0) { // barcode 0 is metro station
         //Serial.print("*** METRO STATION *** \n");
-        handle_metro_stop();
+        //handle_metro_stop();
       } else if (pixy.line.barcodes->m_code == 1) { // barcode 1 is for unloading boxes stop
         //Serial.print("*** STOP: UNLOADING BOXES *** \n");
         unloading_stop();
@@ -466,7 +480,7 @@ void handle_metro_stop() {
 }
 
 void unloading_stop() {
-	if (current_tick - last_barcode_read_tick > 1000) {
+  if (current_tick - last_barcode_read_tick > 1000) {
       stop_motors(); update_motors();
       delay(1000 * PORT_STOP_DURATION_IN_SECONDS);
     }
@@ -475,17 +489,17 @@ void unloading_stop() {
 
 void batt_low_stop() {
   if (battery_low) {
-	
-	stop_motors(); 
-	update_motors();
-	
-	while(1) {
-	  set_led_color(C_BLUE);
-	  delay(7000);
+  
+  stop_motors(); 
+  update_motors();
+  
+  while(1) {
+    set_led_color(C_BLUE);
+    delay(7000);
       set_led_color(C_OFF);
-	  delay(7000);
+    delay(7000);
     }
-  }	
+  } 
 }
 /*
 void brake_and_stop_motors() {
@@ -602,65 +616,65 @@ void moveMotorRight(int motor_speed) {
 
 void handle_battery_level() {
   // current_tick and last_tick are available. in millis
-	if (current_tick - last_voltage_check_in_ms > 1000) {
-		last_voltage_check_in_ms = current_tick;
-		inpVoltages[voltage_index++] = (measuredValLeft.inpVoltage/2 + measuredValRight.inpVoltage/2);
-		if (voltage_index >= NUM_READING_VOLTAGE) {
-			voltage_index = 0;
-			voltage_ready = true;
-		}
-		average_voltage = 0.0;
-		if (voltage_ready) {
-			for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
-			  average_voltage += inpVoltages[i];
-			}
-			average_voltage /= NUM_READING_VOLTAGE;
-		}
-		if (voltage_ready && (average_voltage <= VOLTAGE_WARNING_LEVEL)){
-				battery_warning = true;
-			} else{
-			  battery_warning = false;  
-			}
-			if (voltage_ready && (average_voltage <= VOLTAGE_STOP_LEVEL)) {
-				battery_low = true;	
-			}
+  if (current_tick - last_voltage_check_in_ms > 1000) {
+    last_voltage_check_in_ms = current_tick;
+    inpVoltages[voltage_index++] = (measuredValLeft.inpVoltage/2 + measuredValRight.inpVoltage/2);
+    if (voltage_index >= NUM_READING_VOLTAGE) {
+      voltage_index = 0;
+      voltage_ready = true;
+    }
+    average_voltage = 0.0;
+    if (voltage_ready) {
+      for (int i = 0 ; i < NUM_READING_VOLTAGE; i++) {
+        average_voltage += inpVoltages[i];
+      }
+      average_voltage /= NUM_READING_VOLTAGE;
+    }
+    if (voltage_ready && (average_voltage <= VOLTAGE_WARNING_LEVEL)){
+        battery_warning = true;
+      } else{
+        battery_warning = false;  
+      }
+      if (voltage_ready && (average_voltage <= VOLTAGE_STOP_LEVEL)) {
+        battery_low = true; 
+      }
   }
 }
 
 void handle_duty_level() {
   
-	if(motorstop==false)
-	{
-		if (current_tick - last_duty_check_in_ms > 1000) 
-		{
-			last_duty_check_in_ms = current_tick;
-			inpDutyCycle[duty_index++] = (measuredValLeft.dutyNow/2 + measuredValRight.dutyNow/2);
+  if(motorstop==false)
+  {
+    if (current_tick - last_duty_check_in_ms > 1000) 
+    {
+      last_duty_check_in_ms = current_tick;
+      inpDutyCycle[duty_index++] = (measuredValLeft.dutyNow/2 + measuredValRight.dutyNow/2);
      
-			if (duty_index >= NUM_READING_DUTY) 
-			{
-			duty_index = 0;
-			duty_ready = true;
-			}
-			float duty_cycle = 0.0;
-			average_duty = 0.0;
+      if (duty_index >= NUM_READING_DUTY) 
+      {
+      duty_index = 0;
+      duty_ready = true;
+      }
+      float duty_cycle = 0.0;
+      average_duty = 0.0;
      
-			if (duty_ready) 
-			{
-				for (int i = 0 ; i < NUM_READING_DUTY; i++) 
-				{
-				  duty_cycle = inpDutyCycle[i];
-				  average_duty += duty_cycle;
-				}
-				average_duty /= NUM_READING_DUTY;
-			}
-		}
-	}
+      if (duty_ready) 
+      {
+        for (int i = 0 ; i < NUM_READING_DUTY; i++) 
+        {
+          duty_cycle = inpDutyCycle[i];
+          average_duty += duty_cycle;
+        }
+        average_duty /= NUM_READING_DUTY;
+      }
+    }
+  }
 }
 
 void wifi_send_data() {
   if (current_tick - last_wifi_data_in_ms > 30*1000) {
     //adresse IP au 29/07: 10.155.100.89
-    String url = "http://10.155.100.89/cgi-bin/insert_magni.py?NAME=AGV1&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredValLeft.tachometer) + "&KM=" + String(mydataInEEPROM.km) +"&DUTYCYCLE=" + String(average_duty) + "&CURRENT_TICK=" + String(current_tick) + "&LAST_BARCODE_READ_TICK=" + String(last_barcode_read_tick) + "&COUNT_BARCODE1=0";
+    String url = "http://10.155.100.89/cgi-bin/insert_magni.py?NAME=AGV3&VOLTAGE=" + String(average_voltage) + "&TACHOMETER=" + String(measuredValLeft.tachometer) + "&KM=" + String(mydataInEEPROM.km) +"&DUTYCYCLE=" + String(average_duty) + "&Nb_Bumps=" + String(ErrorLog.BUMPER_DET) + "&Nb_Missing_Lines=" + String(ErrorLog.LINE_MISSING) + "&Stop_Obs=" + String(ErrorLog.FALSE_OBS); 
 	last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();

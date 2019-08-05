@@ -1,6 +1,12 @@
-#define VERSION "0.9.0" // fix km issues + perf issues (too much debug noise on Serial) + remove reporting of wifi isses for now
+#define VERSION "0.9.1" // fix arduino_serial
 
-// the setup function runs once when you press reset or power the board
+
+#include <ArduinoUniqueID.h> // to read serial number of arduino board
+String arduino_serial = "";
+#define AGV_NAME "AGV_DEV"
+#define WIFI_REPORTING_INVERVAL_IN_SECS 30
+
+
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
 // #include Config.h out in VescUart.h
 // This lib version tested with vesc fw 3.38 and 3.40 on teensy 3.2 and arduino uno
@@ -175,6 +181,19 @@ void setup() {
   Serial.print("Starting v");
   Serial.print(VERSION);
   Serial.print("\n");
+
+  Serial.print("name:");
+  Serial.print(String(AGV_NAME));
+  Serial.print("\n");
+  
+  arduino_serial = "";
+  for (size_t i = 0; i < UniqueIDsize; i++){
+    arduino_serial += String(UniqueID[i], HEX);
+  }
+  Serial.print("serial:");
+  Serial.print(arduino_serial);
+  Serial.print("\n");
+  
 
   pinMode(PIN_LIDAR_DATA_0, INPUT);
   pinMode(PIN_LIDAR_DATA_1, INPUT);
@@ -630,14 +649,21 @@ void handle_duty_level() {
 }
 
 void wifi_send_data() {
-  if (current_tick - last_wifi_data_in_ms > 30*1000L) {
+  //if (current_tick - last_wifi_data_in_ms > 30*1000L) {
+  if ((current_tick - last_wifi_data_in_ms) > (WIFI_REPORTING_INVERVAL_IN_SECS * 1000L)) {  
     //adresse IP au 29/07: 10.155.100.89
     String url = "http://10.155.100.89/cgi-bin/insert_magni.py?"
-      + String("NAME=AGV3")
+      + String("NAME=") + String(AGV_NAME)
       + "&VOLTAGE=" + String(average_voltage) 
       + "&TACHOMETER=" + String(measuredValLeft.tachometer) 
+      + "&DUTYCYCLE=" + String(average_duty) 
+      + "&CURRENT_TICK=" + String(current_tick) 
+      + "&SERIAL=" + arduino_serial 
+      + "&FW=" + String(VERSION); 
       + "&KM=" + String(mydataInEEPROM.km) 
-      +"&DUTYCYCLE=" + String(average_duty) ; 
+      + "&M=" + String(mydataInEEPROM.meters) 
+      ; 
+    //Serial.print(url); Serial.print("\n");
     last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();

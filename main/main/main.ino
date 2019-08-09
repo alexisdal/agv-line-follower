@@ -1,4 +1,4 @@
-#define VERSION "0.9.1" // fix arduino_serial
+#define VERSION "0.9.1.1" // fix arduino_serial
 
 
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
@@ -659,7 +659,7 @@ void wifi_send_data() {
       + "&DUTYCYCLE=" + String(average_duty) 
       + "&CURRENT_TICK=" + String(current_tick) 
       + "&SERIAL=" + arduino_serial 
-      + "&FW=" + String(VERSION); 
+      + "&FW=" + String(VERSION) 
       + "&KM=" + String(mydataInEEPROM.km) 
       + "&M=" + String(mydataInEEPROM.meters) 
       ; 

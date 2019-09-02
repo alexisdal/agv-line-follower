@@ -1,0 +1,27 @@
+
+#my stuff
+deleteme.txt
+deleteme_.txt
+docs/201*
+cad/
+electronics/
+
+# private wifi stuff
+esp8266/esp_wget/wifi_settings.h
+esp8266/esp_wget/esp_wget.ino.original
+esp8266/pi_server
+
+# main
+main/pixy2_vesc*
+main/_old
+main/VESC_tests
+
+# lidar
+rplidar_arduino/_old
+
+#windows thumbnail cache
+Thumbs.db
+
+# ms excel cache files
+~*.xlsx
+

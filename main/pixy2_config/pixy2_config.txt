@@ -1,0 +1,16 @@
+pixy2 line follow
+
+0. connect in pixyMon. display live stream
+1. File > Restaure defaults parameters  => pixy reboots (black screen, then video stream is back after a few secs) => params have been reset
+2. Program > line tracking
+3. File > configure
+pixy parameters (saved on pixy) 
+tuning > 
+    maximum line width  255
+    minimum line width : 10
+expert > intersection filtering: 4
+barcode labels > put zero dans 0, 1 dans 1, 2 dans 2, 3 dans 3.
+
+/!\ TODO: VALIDATE THIS PROCEDURE FILE /!\
+
+

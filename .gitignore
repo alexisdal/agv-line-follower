@@ -2,7 +2,7 @@
 #my stuff
 deleteme.txt
 deleteme_.txt
-docs/201*
+doc/201*
 cad/
 electronics/
 
@@ -18,6 +18,7 @@ main/VESC_tests
 
 # lidar
 rplidar_arduino/_old
+rplidar_arduino/zone_detect*
 
 #windows thumbnail cache
 Thumbs.db
@@ -25,3 +26,5 @@ Thumbs.db
 # ms excel cache files
 ~*.xlsx
 
+# some windows driver (dunno what it's for anymore)
+SL-7411-BK_Driver_V1.0/

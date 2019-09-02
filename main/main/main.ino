@@ -1,10 +1,10 @@
-#define VERSION "0.9.1.1" // fix arduino_serial
+#define VERSION "0.9.2" // report events through wifi
 
 
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 String arduino_serial = "";
-#define AGV_NAME "AGV_DEV"
-#define WIFI_REPORTING_INVERVAL_IN_SECS 30
+#define AGV_NAME "AGV3"
+#define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -64,8 +64,13 @@ String arduino_serial = "";
 #define NUM_READING_DUTY 10
 
 // Bandeau led
+// PROD
 #define PIN_LED_RED 6
 #define PIN_LED_BLUE 5
+// // OLD DEV BOARD
+//#define PIN_LED_RED 5
+//#define PIN_LED_BLUE 6
+
 #define PIN_LED_GREEN 7
 
 #define NUM_COLORS 8
@@ -75,6 +80,7 @@ String arduino_serial = "";
 #define METRO_STATION_STOP_DURATION_IN_SECONDS 10
 #define PORT_STOP_DURATION_IN_SECONDS 30
 #define LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS 5
+#define BUMP_STOP_BEFORE_RESUME_DURATION_IN_SECONDS 5
 
 Pixy2 pixy;
 
@@ -122,6 +128,28 @@ unsigned long last_tick = 0;
 unsigned long current_tick = 0;
 unsigned long duration = 0;
 unsigned long num_loop = 0;
+
+
+// this will count how many bumps / lidar_* / line_lost we have to report over wifi
+struct events_to_reports {
+  int num_bumps = 0;
+  int num_lidar_crit = 0;
+  int num_lidar_err = 0;
+  int num_line_lost = 0;
+};
+events_to_reports my_events_to_report;
+
+// this will let us stop the AGV without stopping the loop() with a delay + detect the event only once to correctly count them
+struct event_detect {
+  bool active = false; // if the event is still ongoing or if it's gone
+  long last_seen_in_ms = 0; // when the event happened for the last time
+};
+event_detect bumped;
+event_detect lidar_crit;
+event_detect lidar_err;
+event_detect line_lost;
+
+
 
 float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 0.25 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
 float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
@@ -207,6 +235,9 @@ void setup() {
   stop_motors(); update_motors();
   
   set_led_color(C_GREEN);
+
+
+
 
   read_km_from_eeprom();
   update_measured_values() ; meters_from_vesc_at_arduino_boot = get_meters_from_vesc();
@@ -330,13 +361,15 @@ void setup_motors()
 }
 
 void bumper_detection() {
-  if (digitalRead(PIN_LIDAR_BUMP) == 1)
-  {
-    stop_motors(); update_motors(); 
-    set_led_color(C_RED);
-    delay(2000);
-    while (digitalRead(PIN_LIDAR_BUMP) == 1) {
-      delay(4000);
+  if (digitalRead(PIN_LIDAR_BUMP) == 1) {
+    if (!bumped.active) {
+      bumped.active = true;
+      my_events_to_report.num_bumps += 1;
+    }
+  } else {
+    if (bumped.active) {
+      delay(BUMP_STOP_BEFORE_RESUME_DURATION_IN_SECONDS * 1000L); // wait a bit because rplidar needs ~3sec to correctly boot and detect bumps
+      bumped.active = false;
     }
   }
 }
@@ -367,7 +400,7 @@ int get_lidar_state()
   return state;
 }
 
-void obstacle_detection()
+/*void obstacle_detection()
 {
   lidar_state = get_lidar_state();
   if (lidar_state == COMM_ERR) {
@@ -385,7 +418,44 @@ void obstacle_detection()
     nominal_speed = NOMINAL_SPEED;
     KSTEEP = (NOMINAL_SPEED - ESC_STOP);
   }
+}*/
+
+void obstacle_detection()
+{
+  lidar_state = get_lidar_state();
+  if (lidar_state == COMM_ERR) {
+    if (!lidar_err.active) { 
+      my_events_to_report.num_lidar_err += 1; 
+    }
+    lidar_err.active = true;
+    lidar_err.last_seen_in_ms = current_tick;
+  } else if (lidar_state == COMM_CRIT) {
+    if (!lidar_crit.active) {
+      my_events_to_report.num_lidar_crit += 1;
+    }
+    lidar_crit.active = true;
+    lidar_crit.last_seen_in_ms = current_tick;
+  } else if (lidar_state == COMM_WARN) {
+    nominal_speed = NOMINAL_SPEED_WARNING;
+    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
+  } else {
+    nominal_speed = NOMINAL_SPEED;
+    KSTEEP = (NOMINAL_SPEED - ESC_STOP);
+  }
+  
+  // reset flags after correct duration
+  if (lidar_err.active) {
+    if (current_tick > lidar_err.last_seen_in_ms + LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000L) {
+      lidar_err.active = false;
+    }
+  }
+  if (lidar_crit.active) {
+    if (current_tick > lidar_crit.last_seen_in_ms + LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000L) {
+      lidar_crit.active = false;
+    }
+  }
 }
+
 
 void lecture_pixy_front()
 {
@@ -407,16 +477,16 @@ void lecture_pixy_front()
     if (nbError > MAX_LINE_MISS) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
     {
       stop_motors(); update_motors();
-      set_led_color(C_PURPLE);
-    } else {
-      suiviLigne();  
+      if (!line_lost.active) {
+        line_lost.active = true;
+        my_events_to_report.num_line_lost += 1;
+      }
     }
   } else {
     //Serial.print("ok\t");
     if (res & LINE_VECTOR) {
       //Serial.print("ok\t");
-
-      nbError = 0;
+      nbError = 0; line_lost.active = false;
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
       // the part of the vector we're heading toward.
       linePosition = (int32_t)pixy.line.vectors->m_x1 - (int32_t)X_CENTER;
@@ -447,11 +517,7 @@ void lecture_pixy_front()
         }
       }*/
     }
-
-    suiviLigne();
   }
-
-
 }
 
 void handle_metro_stop() {
@@ -486,9 +552,9 @@ void batt_low_stop() {
   
   while(1) {
     set_led_color(C_BLUE);
-    delay(7000);
+    delay(1000);
       set_led_color(C_OFF);
-    delay(7000);
+    delay(1000);
     }
   } 
 }
@@ -501,15 +567,34 @@ void stop_motors() {
   motorstop=true;
 }
 
-void suiviLigne()
-{
-  motorstop = false;
-
-  if (battery_warning) {
+void set_motor_speed() {
+  
+  if (line_lost.active) {
+    stop_motors(); set_led_color(C_PURPLE);
+    return;
+  }
+  if (lidar_err.active) {
+    stop_motors(); set_led_color(C_LIME);
+    return;
+  }
+  if (lidar_crit.active || bumped.active) {
+    stop_motors(); set_led_color(C_RED);
+    return;
+  }
+  
+  if (battery_low) {
+    set_led_color( ((current_tick/1000L) % 2 == 0) ? C_BLUE : C_OFF); // blink blue/off every second
+  } else if (battery_warning) {
     set_led_color(C_BLUE);
   } else {
     set_led_color(C_GREEN);
   }
+  follow_line();
+}
+
+void follow_line()
+{
+  motorstop = false;
 
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
@@ -606,15 +691,15 @@ void handle_battery_level() {
         average_voltage += inpVoltages[i];
       }
       average_voltage /= NUM_READING_VOLTAGE;
-    }
-    if (voltage_ready && (average_voltage <= VOLTAGE_WARNING_LEVEL)){
+      if (average_voltage <= VOLTAGE_WARNING_LEVEL){
         battery_warning = true;
-      } else{
+      } else {
         battery_warning = false;  
       }
-      if (voltage_ready && (average_voltage <= VOLTAGE_STOP_LEVEL)) {
+      if (average_voltage <= VOLTAGE_STOP_LEVEL) {
         battery_low = true; 
       }
+    }
   }
 }
 
@@ -650,7 +735,7 @@ void handle_duty_level() {
 
 void wifi_send_data() {
   //if (current_tick - last_wifi_data_in_ms > 30*1000L) {
-  if ((current_tick - last_wifi_data_in_ms) > (WIFI_REPORTING_INVERVAL_IN_SECS * 1000L)) {  
+  if ((current_tick - last_wifi_data_in_ms) > (WIFI_REPORTING_INTERVAL_IN_SECS * 1000L)) {  
     //adresse IP au 29/07: 10.155.100.89
     String url = "http://10.155.100.89/cgi-bin/insert_magni.py?"
       + String("NAME=") + String(AGV_NAME)
@@ -662,11 +747,21 @@ void wifi_send_data() {
       + "&FW=" + String(VERSION) 
       + "&KM=" + String(mydataInEEPROM.km) 
       + "&M=" + String(mydataInEEPROM.meters) 
+      + "&num_bumps=" + String(my_events_to_report.num_bumps) 
+      + "&num_lidar_crit=" + String(my_events_to_report.num_lidar_crit) 
+      + "&num_lidar_err=" + String(my_events_to_report.num_lidar_err) 
+      + "&num_line_lost=" + String(my_events_to_report.num_line_lost) 
       ; 
-    //Serial.print(url); Serial.print("\n");
+    Serial.print(url); Serial.print("\n");
     last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();
+    // reset event counts (we report them once only
+    my_events_to_report.num_bumps      = 0;
+    my_events_to_report.num_lidar_crit = 0;
+    my_events_to_report.num_lidar_err  = 0;
+    my_events_to_report.num_line_lost  = 0;
+    
   }
 }
 
@@ -685,6 +780,8 @@ void loop() {
   obstacle_detection();
   
   lecture_pixy_front();
+  
+  set_motor_speed();
   
   update_motors();
   

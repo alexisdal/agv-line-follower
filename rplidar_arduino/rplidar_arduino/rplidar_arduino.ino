@@ -1,3 +1,4 @@
+#define VERSION "0.6" // send ALL_OK while booting
 
 // This sketch code is based on the RPLIDAR driver library provided by RoboPeak
 #include <RPLidar.h>
@@ -53,6 +54,13 @@ int index_bumper = 0;
 
 void setup() {
 
+  // just to display fw version (does not interfere with rplidar)
+  Serial.begin(115200); 
+  Serial.print("Starting v");
+  Serial.print(VERSION);
+  Serial.print("\n");
+
+
   analogWrite(PIN_LED_WARNING, 0);
   analogWrite(PIN_LED_CRITICAL, 0);
 
@@ -75,6 +83,9 @@ void setup() {
   pinMode(PIN_LED_BUMPER,   OUTPUT);
   pinMode(PIN_BUMPER_DATA, OUTPUT);
 
+  send_communication(COMM_ALL_OK);    // send lidar_ok  to the main arduino
+  digitalWrite(PIN_BUMPER_DATA, LOW); // send bumper_ok to the main arduino
+
 
   tolerated_distances[ZONE_CRITICAL] = 210.0;
   tolerated_distances[ZONE_A] = 250.0;
@@ -89,13 +100,14 @@ void setup() {
   }
 
 
-  send_communication(COMM_ERR);
   //Serial.print("send comm ok");
   blink_led();
   //Serial.print("blinkled ok");
   // bind the RPLIDAR driver to the arduino hardware serial
   lidar.begin(Serial);
   //Serial.print("Begin lidar");
+
+
 
 
 }

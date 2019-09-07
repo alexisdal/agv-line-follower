@@ -1,20 +1,14 @@
 #include <stdint.h>
-// based on https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
+#include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#include <Arduino.h>
+#include "wifi_settings.h"
 
 #define VERSION "0.3.0.a"
 
-#include <Arduino.h>
-
-#include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-
-#include <ESP8266HTTPClient.h>
-
-#include <WiFiClient.h>
-
 ESP8266WiFiMulti WiFiMulti;
-
-#include "wifi_settings.h"
 
 String url;
 

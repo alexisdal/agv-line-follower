@@ -1,0 +1,30 @@
+
+#my stuff
+deleteme.txt
+deleteme_.txt
+doc/201*
+cad/
+electronics/
+
+# private wifi stuff
+esp8266/esp_wget/wifi_settings.h
+esp8266/esp_wget/esp_wget.ino.original
+esp8266/pi_server
+
+# main
+main/pixy2_vesc*
+main/_old
+main/VESC_tests
+
+# lidar
+rplidar_arduino/_old
+rplidar_arduino/zone_detect*
+
+#windows thumbnail cache
+Thumbs.db
+
+# ms excel cache files
+~*.xlsx
+
+# some windows driver (dunno what it's for anymore)
+SL-7411-BK_Driver_V1.0/

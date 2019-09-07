@@ -1,11 +1,10 @@
 #include <stdint.h>
-
-#define VERSION "0.9.2" // report events through wifi
+#define VERSION "0.9.2.1" // report events false positive fix line_lost
 
 
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 String arduino_serial = "";
-#define AGV_NAME "AGV3"
+#define AGV_NAME "AGV_DEV"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 
@@ -48,7 +47,7 @@ String arduino_serial = "";
 #endif
 
 #define OBSERVED_FPS 60.0 // how much fps i have measure in my console given everything i do
-#define MAX_LINE_MISS 90 // at 60fps 
+#define MAX_LINE_MISS 90 // at 60fps, 90 errors makes 1.5sec without seeing the line
 #define X_CENTER  (pixy.frameWidth/2) // position de la ligne sur le capteur
 
 //Lidar data
@@ -151,7 +150,7 @@ event_detect lidar_crit;
 event_detect lidar_err;
 event_detect line_lost;
 
-
+int previous_bump_pin_read = 0; // debounce bump events
 
 float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 0.25 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
 float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
@@ -169,6 +168,8 @@ int32_t nominal_speed = NOMINAL_SPEED;
 bool motorstop = false;
 int32_t linePosition = 0;
 uint64_t nbError = 9999;
+#define NUM_LINES_OK_TO_START_MOVING 10
+uint64_t nb_line_ok = 0;
 
 int32_t lidar_state = COMM_ALL_OK;
 
@@ -363,7 +364,11 @@ void setup_motors()
 }
 
 void bumper_detection() {
-  if (digitalRead(PIN_LIDAR_BUMP) == 1) {
+  // we do have false positives from time to time (about a few times a day))
+  // dunno why
+  // let's debounce it (must be two consecutive events). at speed 0.4m/s@60 it's roughly 6mm distance which is perfectly fine
+  int current_bump_pin_read = digitalRead(PIN_LIDAR_BUMP);
+  if (current_bump_pin_read == previous_bump_pin_read && current_bump_pin_read == 1) {
     if (!bumped.active) {
       bumped.active = true;
       my_events_to_report.num_bumps += 1;
@@ -374,6 +379,7 @@ void bumper_detection() {
       bumped.active = false;
     }
   }
+  previous_bump_pin_read = current_bump_pin_read;
 }
 
 
@@ -402,25 +408,6 @@ int32_t get_lidar_state()
   return state;
 }
 
-/*void obstacle_detection()
-{
-  lidar_state = get_lidar_state();
-  if (lidar_state == COMM_ERR) {
-    stop_motors(); update_motors(); 
-    set_led_color(C_LIME);
-    delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000L);
-  } else if (lidar_state == COMM_CRIT) {
-    stop_motors(); update_motors(); 
-    set_led_color(C_RED);
-    delay(LIDAR_CRIT_ERR_STOP_DURATION_IN_SECONDS*1000L);
-  } else if (lidar_state == COMM_WARN) {
-    nominal_speed = NOMINAL_SPEED_WARNING;
-    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
-  } else {
-    nominal_speed = NOMINAL_SPEED;
-    KSTEEP = (NOMINAL_SPEED - ESC_STOP);
-  }
-}*/
 
 void obstacle_detection()
 {
@@ -476,19 +463,24 @@ void lecture_pixy_front()
     //Serial.print("KO\t");
     //Serial.print(nbError);
     //Serial.print("\t");
-    if (nbError > MAX_LINE_MISS) // given that loops runs at 30Hz => let's give it 2 seconds (was 60. now 120)
+    if (nbError > MAX_LINE_MISS) // given that loops runs at 62 fps => 90 errors makes it 1.5sec => at 0.4m/s it's about 60cm run
     {
       stop_motors(); update_motors();
       if (!line_lost.active) {
         line_lost.active = true;
         my_events_to_report.num_line_lost += 1;
+        nb_line_ok = 0;
       }
     }
   } else {
     //Serial.print("ok\t");
     if (res & LINE_VECTOR) {
       //Serial.print("ok\t");
-      nbError = 0; line_lost.active = false;
+      nbError = 0; 
+      nb_line_ok += 1;
+      // require 5 correct line to start moving => goal = when line is lost, do not trigger an addtional line_lost event when a line appears in a frame and disappears in the following frame
+      if (line_lost.active && nb_line_ok <= NUM_LINES_OK_TO_START_MOVING) { return; }
+      line_lost.active = false;
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
       // the part of the vector we're heading toward.
       linePosition = (int32_t)pixy.line.vectors->m_x1 - (int32_t)X_CENTER;
@@ -754,7 +746,7 @@ void wifi_send_data() {
       + "&num_lidar_err=" + String(my_events_to_report.num_lidar_err) 
       + "&num_line_lost=" + String(my_events_to_report.num_line_lost) 
       ; 
-    Serial.print(url); Serial.print("\n");
+    //Serial.print(url); Serial.print("\n");
     last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);
     SERIAL_WIFI.flush();

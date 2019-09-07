@@ -1,53 +1,61 @@
-// based on https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
+#define VERSION "0.4.0"
 
-#define VERSION "0.3.0.a"
+// based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
+//           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
 
-#include <Arduino.h>
-
+// to connect to a wifi network just with ssid/password
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
 
+// to make HTTP requests
 #include <ESP8266HTTPClient.h>
 
-#include <WiFiClient.h>
-
-ESP8266WiFiMulti WiFiMulti;
+// warning: the builtin led has an inversed logic: needs to be LOW to be turned on. HIGH turns it off. go figure!?
+#define _WORKING_LED_BUILTIN 2
 
 #include "wifi_settings.h"
-
-String url;
+const char* ssid     = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
 #define QRY_OK                         0
 #define QRY_ERR_HTTP_ERROR_CODE        1
 #define QRY_ERR_HTTP_UNABLE_TO_CONNECT 2
 #define QRY_ERR_WIFI_NOT_CONNECTED     3
 #define QRY_NO_QUERY                   4
-
 struct query_response {
+  unsigned long duration_in_ms = 0;
   int query_status = QRY_NO_QUERY;
-  String server_response = "NOT_APPLICABLE";
+  String server_response = "";
 };
 query_response my_response;
 
-
+String url_prefix = "http://10.155.100.89/cgi-bin/insert.py";
+String url;
+String request;
 void setup() {
 
   Serial.begin(115200);
   Serial.setTimeout(500); // sets the maximum milliseconds to wait for serial data. It defaults to 1000 milliseconds.
 
-
+  pinMode(_WORKING_LED_BUILTIN, OUTPUT);
+  digitalWrite(_WORKING_LED_BUILTIN, HIGH); // HIGH to turn off | LOW to turns on /!\
+  
   Serial.print("start wifi v");
   Serial.print(VERSION);
   Serial.print("\n");
+
+  /* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
+     would try to act as both a client and an access-point and could cause
+     network-issues with your other WiFi-devices on your WiFi-network. */
   WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(ssid, password);
+
   Serial.println();
   Serial.print("MAC: ");
-  Serial.println(WiFi.macAddress());
+  Serial.print(WiFi.macAddress());
+  Serial.print("\n");
 
+  delay(100);
 }
-
-// http://10.155.100.89/cgi-bin/insert.py?NAME=WIFI_DEV
 
 
 void print_query_status(){
@@ -82,7 +90,7 @@ void print_fw(){
 }   
 
 void print_ip(){
-  if( WiFiMulti.run() == WL_CONNECTED) {
+  if( WiFi.status() == WL_CONNECTED ) {
     Serial.print(WiFi.localIP());
     Serial.print("\n");
   } else {
@@ -90,8 +98,7 @@ void print_ip(){
   }
 }
 
-void print_status(){
-  int status = WiFiMulti.run();
+void print_status(int status){
   if      (  status == WL_IDLE_STATUS)     { Serial.print("WL_IDLE_STATUS"); }
   else if (  status == WL_NO_SSID_AVAIL)   { Serial.print("WL_NO_SSID_AVAIL"); }
   else if (  status == WL_SCAN_COMPLETED)  { Serial.print("WL_SCAN_COMPLETED"); }
@@ -111,21 +118,6 @@ void print_signal_strength(){
 }
 
 //https://github.com/tttapa/Projects/blob/master/ESP8266/WiFi/RSSI-WiFi-Quality/RSSI-WiFi-Quality.ino
-/*
-   Return the quality (Received Signal Strength Indicator)
-   of the WiFi network.
-   Returns a number between 0 and 100 if WiFi is connected.
-   Returns -1 if WiFi is disconnected.
-int get_signal_strengh() {
-  if (WiFi.status() != WL_CONNECTED)
-    return -1;
-  int dBm = WiFi.RSSI();
-  if (dBm <= -100)
-    return 0;
-  if (dBm >= -50)
-    return 100;
-  return 2 * (dBm + 100);
-}*/
 int get_signal_strengh() {
   if (WiFi.status() != WL_CONNECTED) {
     return 0;
@@ -135,15 +127,21 @@ int get_signal_strengh() {
 }
 
 void add_own_params_to_url(){
-  
+  url = url_prefix + request
+  +"&rssi="+String(WiFi.RSSI())
+  +"&channel="+String(WiFi.channel());
 }
 
-int wget(){
+void wget(){
+  long start, end = 0;
+  start = millis();
+  my_response.duration_in_ms = 0;
   my_response.query_status = QRY_OK;
   my_response.server_response = "";
+  
   // wait for WiFi connection
-  if (WiFiMulti.run() == WL_CONNECTED) {
-    
+  if (WiFi.status() == WL_CONNECTED) {
+    add_own_params_to_url();
     WiFiClient client;
     HTTPClient http;
     //Serial.print("[HTTP] begin...\n");
@@ -183,34 +181,45 @@ int wget(){
       my_response.query_status    = QRY_ERR_WIFI_NOT_CONNECTED;
       my_response.server_response = "NOT_APPLICABLE";
   }
+  end = millis();
+  my_response.duration_in_ms = end - start;
 }
 
+
 void loop() {
+  
+  digitalWrite(_WORKING_LED_BUILTIN, WiFi.status() == WL_CONNECTED ? LOW : HIGH); // HIGH to turn off | LOW to turns on 
+  
   while (Serial.available() > 0) {
-    url = Serial.readStringUntil('\n'); // read the incoming data as string
+    request = Serial.readStringUntil('\n'); // read the incoming data as string
   }
-  if (url != "") {
-    if (url.endsWith("\n")) {
-      url.remove(url.length()-1);
+  if (request != "") {
+    if (request.endsWith("\n")) {
+      request.remove(request.length()-1);
     }
-    
-    if (url.startsWith("_STS")) {
-      print_status();
-    } else if (url.startsWith("_IP")) {
+    // typical parameter set
+    // ?n=WIFI_DEV&v=24.20&t=1589724&dty=0.23&ct=11202735&sr=6e756e6b776f04d&fw=0.9.3&km=137&m=907.55&bps=0&lc=0&le=0&ll=0
+    if        (request.startsWith("?")) {
+      wget();
+    } else if (request.startsWith("_ST")) {
+      print_status(WiFi.status());
+    } else if (request.startsWith("_IP")) {
       print_ip();
-    } else if (url.startsWith("_FW")) {
+    } else if (request.startsWith("_FW")) {
       print_fw();
-    } else if (url.startsWith("_MAC")) {
+    } else if (request.startsWith("_MAC")) {
       print_mac();
-    } else if (url.startsWith("_QS")) { // query_status
+    } else if (request.startsWith("_QR")) { 
+      Serial.print(url);Serial.print("\n");
+    } else if (request.startsWith("_QS")) { // query_status
       print_query_status();
-    } else if (url.startsWith("_SR")) { // server_response
+    } else if (request.startsWith("_SR")) { // server_response
       print_server_response();
-    } else if (url.startsWith("_SS")) { // signal_strengh
+    } else if (request.startsWith("_SS")) { // signal_strengh
       print_signal_strength();
     } else {
-      wget();
+      Serial.print("ERROR: invalid request\n");
     }
-    url = "";
+    request = "";
   }
 }

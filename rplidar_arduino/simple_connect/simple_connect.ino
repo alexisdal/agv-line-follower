@@ -1,6 +1,4 @@
 #include <stdint.h>
-
-// This sketch code is based on the RPLIDAR driver library provided by RoboPeak
 #include <RPLidar.h>
 
 // You need to create an driver instance

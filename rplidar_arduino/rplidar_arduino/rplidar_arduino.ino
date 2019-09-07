@@ -1,9 +1,7 @@
 #include <stdint.h>
+#include <RPLidar.h>
 
 #define VERSION "0.6" // send ALL_OK while booting
-
-// This sketch code is based on the RPLIDAR driver library provided by RoboPeak
-#include <RPLidar.h>
 
 // You need to create an driver instance
 RPLidar lidar;

@@ -1,23 +1,19 @@
 #include <stdint.h>
+#include <VescUart.h>
+#include <datatypes.h>
+#include <Pixy2.h>
+#include <ArduinoUniqueID.h> // to read serial number of arduino board
+#include <EEPROM.h>
+
 #define VERSION "0.9.2.1" // report events false positive fix line_lost
 
-
-#include <ArduinoUniqueID.h> // to read serial number of arduino board
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
-
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
 // #include Config.h out in VescUart.h
 // This lib version tested with vesc fw 3.38 and 3.40 on teensy 3.2 and arduino uno
-
-//VESC
-#include <VescUart.h>
-#include <datatypes.h>
-
-//Pixy 
-#include <Pixy2.h>
 
 //Serial ports
 #define SERIAL_RIGHT Serial1
@@ -86,7 +82,6 @@ String arduino_serial = "";
 Pixy2 pixy;
 
 //Handle km 
-#include <EEPROM.h>
 #define FORCE_EEPROM_RESET 0
 #define EE_ADDRESS 20  // a bug in previous release damaged the flash at address 0x00
 #define MM_PER_TACHO_UNIT  1.377467548  // 260 tacho per rev  / 358.11 mm circumference (114 mm diamter * pi)

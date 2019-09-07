@@ -1,4 +1,4 @@
-
+#include <stdint.h>
 
 // This sketch code is based on the RPLIDAR driver library provided by RoboPeak
 #include <RPLidar.h>
@@ -20,7 +20,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 
     // blink to show reset
-    for (int i = 0 ; i < 5 ; i++) {
+    for (size_t i = 0 ; i < 5 ; i++) {
     analogWrite(LED_BUILTIN, 0);
     delay(100);
     analogWrite(LED_BUILTIN, 255);
@@ -30,12 +30,12 @@ void setup() {
 
 }
 
-int light_factor = 0;
+int32_t light_factor = 0;
 float min_distance = 9999;
-unsigned long previous_event_tick = 0;
-unsigned long current_tick = 0;
-unsigned long count = 0;
-unsigned long rev_count = 0;
+uint64_tprevious_event_tick = 0;
+uint64_tcurrent_tick = 0;
+uint64_tcount = 0;
+uint64_trev_count = 0;
 
 void loop() 
 {
@@ -57,7 +57,7 @@ void loop()
     float distance = lidar.getCurrentPoint().distance; //distance value in mm unit
     float angle    = lidar.getCurrentPoint().angle; //anglue value in degree
     bool  startBit = lidar.getCurrentPoint().startBit; //whether this point is belong to a new scan
-    byte  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
+    uint8_t  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
 
     count++;
     if (startBit) { rev_count++; }

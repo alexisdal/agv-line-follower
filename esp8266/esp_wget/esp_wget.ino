@@ -1,3 +1,4 @@
+#include <stdint.h>
 // based on https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
 
 #define VERSION "0.3.0.a"

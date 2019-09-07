@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #define VERSION "0.9.2" // report events through wifi
 
 
@@ -91,7 +93,7 @@ Pixy2 pixy;
 #define MM_PER_TACHO_UNIT  1.377467548  // 260 tacho per rev  / 358.11 mm circumference (114 mm diamter * pi)
 struct dataInEEPROM {
   char fw_version[10];
-  long km; // current km value (will be incremeted by 1 for each 1000m
+  int64_t km; // current km value (will be incremeted by 1 for each 1000m
   float meters;
 };
 dataInEEPROM mydataInEEPROM;
@@ -101,8 +103,8 @@ float current_meters = 0.0f;
 #define SAVE_KM_INTERVAL_IN_SEC  600 // every 10min gives EEPROM a theorical  lifetime of 3.5years on a 2 shifts warehouse.
                                      // worst case scenario, someone turns off the AGV 599sec after the previous save: 
                                      // at 0.33m/s average speed => 0.33*599s = 200m lost in the counter => ok 
-unsigned long last_km_save_in_ms = 0;
-long meters_already_saved = 0;
+uint64_t last_km_save_in_ms = 0;
+int64_t meters_already_saved = 0;
 
 struct bldcMeasure measuredValLeft; // to read battery voltage, tachometer, etc...
 struct bldcMeasure measuredValRight;
@@ -114,35 +116,35 @@ bool battery_low = false;
 
 float inpVoltages[NUM_READING_VOLTAGE];
 float inpDutyCycle[NUM_READING_DUTY];
-int voltage_index = 0;
-int duty_index = 0;
+int32_t voltage_index = 0;
+int32_t duty_index = 0;
 
 float average_voltage = 0.0;
 float average_duty = 0.0;
 
-unsigned long last_voltage_check_in_ms = 0;
-unsigned long last_wifi_data_in_ms = 0;
-unsigned long last_duty_check_in_ms = 0;
+uint64_t last_voltage_check_in_ms = 0;
+uint64_t last_wifi_data_in_ms = 0;
+uint64_t last_duty_check_in_ms = 0;
 
-unsigned long last_tick = 0;
-unsigned long current_tick = 0;
-unsigned long duration = 0;
-unsigned long num_loop = 0;
+uint64_t last_tick = 0;
+uint64_t current_tick = 0;
+uint64_t duration = 0;
+uint64_t num_loop = 0;
 
 
 // this will count how many bumps / lidar_* / line_lost we have to report over wifi
 struct events_to_reports {
-  int num_bumps = 0;
-  int num_lidar_crit = 0;
-  int num_lidar_err = 0;
-  int num_line_lost = 0;
+  int32_t num_bumps = 0;
+  int32_t num_lidar_crit = 0;
+  int32_t num_lidar_err = 0;
+  int32_t num_line_lost = 0;
 };
 events_to_reports my_events_to_report;
 
 // this will let us stop the AGV without stopping the loop() with a delay + detect the event only once to correctly count them
 struct event_detect {
   bool active = false; // if the event is still ongoing or if it's gone
-  long last_seen_in_ms = 0; // when the event happened for the last time
+  int64_t last_seen_in_ms = 0; // when the event happened for the last time
 };
 event_detect bumped;
 event_detect lidar_crit;
@@ -157,22 +159,22 @@ float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // 
 //#define KSTEEP 1.2 //0.8
 float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
 
-int motor_speed_left = 0;
-int motor_speed_right = 0;
-int motor_speed_left_prev = 0;
-int motor_speed_right_prev = 0;
+int32_t motor_speed_left = 0;
+int32_t motor_speed_right = 0;
+int32_t motor_speed_left_prev = 0;
+int32_t motor_speed_right_prev = 0;
 
-int nominal_speed = NOMINAL_SPEED;
+int32_t nominal_speed = NOMINAL_SPEED;
 
 bool motorstop = false;
-int linePosition = 0;
-unsigned long nbError = 9999;
+int32_t linePosition = 0;
+uint64_t nbError = 9999;
 
-int lidar_state = COMM_ALL_OK;
+int32_t lidar_state = COMM_ALL_OK;
 
 // metro stop
-unsigned long metro_stop_counter = 0;
-unsigned long last_barcode_read_tick = 0;
+uint64_t metro_stop_counter = 0;
+uint64_t last_barcode_read_tick = 0;
 
 //enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_LIME, C_CYAN, C_WHITE}; 
 //enum c{_R, _G, _B}; 
@@ -190,7 +192,7 @@ unsigned long last_barcode_read_tick = 0;
 
 
 
-int rgb[NUM_COLORS][3] = {
+int32_t rgb[NUM_COLORS][3] = {
   { 0, 0, 0 },   // C_OFF 
   { 1, 0, 0 },   // C_RED
   { 0, 1, 0 },   // C_GREEN
@@ -257,9 +259,9 @@ void setup() {
   
   
   //stay stopped for a while (safe start 3sec)
-  int t = 1000 / NUM_COLORS * 3;
-  for (int i = 0 ; i < 1 ; i++) {
-    for (int j = 0 ; j < NUM_COLORS ; j++) {
+  int32_t t = 1000 / NUM_COLORS * 3;
+  for (size_t i = 0 ; i < 1 ; i++) {
+    for (size_t j = 0 ; j < NUM_COLORS ; j++) {
       set_led_color(j); delay(t);
     }
   }
@@ -275,7 +277,7 @@ void setup() {
   pixy.changeProg("line");
 
   //initialize the voltage checks
-  for (int i = 0 ; i < NUM_READING_VOLTAGE ; i++) {
+  for (size_t i = 0 ; i < NUM_READING_VOLTAGE ; i++) {
     inpVoltages[i] = -1.0;
   }
 
@@ -312,18 +314,18 @@ float get_meters_from_vesc() {
   // update_measured_values() must have been called beforehand
   // /!\ while doing debug with Serial and laptop, resetting the arduino does *NOT* reset the VESC.
   // therefore value of tachometer will be kept unless you manually power off/on the main battery like a regular operator would do 
-  long mytacho = measuredValLeft.tachometer/2 + measuredValRight.tachometer/2;
+  int64_t mytacho = measuredValLeft.tachometer/2 + measuredValRight.tachometer/2;
   return (float)(mytacho) * MM_PER_TACHO_UNIT / 1000.0f ;
 }
 
-long handle_kmeters(){
+int64_t handle_kmeters(){
   current_meters = get_meters_from_vesc() - meters_from_vesc_at_arduino_boot;
   if ((current_tick - last_km_save_in_ms) > (SAVE_KM_INTERVAL_IN_SEC * 1000L)) {  
     // needs saving
     float meters_to_save = mydataInEEPROM.meters + (current_meters - meters_already_saved);
     if (meters_to_save > 1000.0) {
       // increase km
-      long extra_km = (long)(meters_to_save/1000.0);
+      int64_t extra_km = (long)(meters_to_save/1000.0);
       mydataInEEPROM.km += extra_km;
       mydataInEEPROM.meters = meters_to_save - (extra_km*1000.0);
     } else {
@@ -375,10 +377,10 @@ void bumper_detection() {
 }
 
 
-int get_lidar_state()
+int32_t get_lidar_state()
 {
-  int d0 = digitalRead(PIN_LIDAR_DATA_0);
-  int d1 = digitalRead(PIN_LIDAR_DATA_1);
+  int32_t d0 = digitalRead(PIN_LIDAR_DATA_0);
+  int32_t d1 = digitalRead(PIN_LIDAR_DATA_1);
 
   //         D0   D1
   // ALL OK   0    0
@@ -386,7 +388,7 @@ int get_lidar_state()
   // CRIT     1    0
   // ERR      1    1
 
-  int state = 0;
+  int32_t state = 0;
 
   if        ((d0 == 0) && (d1 == 0)) {
     state = COMM_ALL_OK;
@@ -789,7 +791,7 @@ void loop() {
   
   wifi_send_data();
   
-  long duration = current_tick - last_tick;
+  int32_t duration = current_tick - last_tick;
 
   //Serial.print("millis:\t");
   //Serial.print("bat:");Serial.print(handle_battery_level_ms - current_tick); Serial.print("\t");

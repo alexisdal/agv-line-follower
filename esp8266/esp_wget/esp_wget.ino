@@ -1,3 +1,4 @@
+#include <stdint.h>
 // forked from https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
 
 

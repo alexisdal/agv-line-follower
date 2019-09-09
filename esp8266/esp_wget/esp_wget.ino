@@ -1,4 +1,4 @@
-#define VERSION "0.4.0"
+#define VERSION "0.4.1"
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
@@ -22,8 +22,8 @@ const char* password = WIFI_PASSWORD;
 #define QRY_ERR_WIFI_NOT_CONNECTED     3
 #define QRY_NO_QUERY                   4
 struct query_response {
-  unsigned long duration_in_ms = 0;
-  int query_status = QRY_NO_QUERY;
+  int32_t duration_in_ms = 0;  // on arduino, millis() returns "a long on arduino", which is =>  Long variables are extended size variables for number storage, and store 32 bits (4 bytes), from -2,147,483,648 to 2,147,483,647. see https://www.arduino.cc/reference/en/language/variables/data-types/long/
+  uint8_t query_status = QRY_NO_QUERY; // int -> uint8_t because this int needs just a few values
   String server_response = "";
 };
 query_response my_response;
@@ -98,7 +98,7 @@ void print_ip(){
   }
 }
 
-void print_status(int status){
+void print_status(int32_t status){
   if      (  status == WL_IDLE_STATUS)     { Serial.print("WL_IDLE_STATUS"); }
   else if (  status == WL_NO_SSID_AVAIL)   { Serial.print("WL_NO_SSID_AVAIL"); }
   else if (  status == WL_SCAN_COMPLETED)  { Serial.print("WL_SCAN_COMPLETED"); }
@@ -117,8 +117,8 @@ void print_signal_strength(){
   Serial.print("\n");
 }
 
-//https://github.com/tttapa/Projects/blob/master/ESP8266/WiFi/RSSI-WiFi-Quality/RSSI-WiFi-Quality.ino
-int get_signal_strengh() {
+// https://www.arduino.cc/en/Reference/WiFiRSSI
+int32_t get_signal_strengh() {
   if (WiFi.status() != WL_CONNECTED) {
     return 0;
   } else {
@@ -133,7 +133,7 @@ void add_own_params_to_url(){
 }
 
 void wget(){
-  long start, end = 0;
+  int32_t start, end = 0;
   start = millis();
   my_response.duration_in_ms = 0;
   my_response.query_status = QRY_OK;
@@ -149,7 +149,7 @@ void wget(){
     if (http.begin(client, url)) {  // HTTP
       //Serial.print("[HTTP] GET " + url + " ");
       // start connection and send HTTP header
-      int httpCode = http.GET();
+      int32_t httpCode = http.GET();  // returns an 'int' so int32_t on ESP8266 => https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/src/ESP8266HTTPClient.h
       // httpCode will be negative on error
       if (httpCode > 0) {
         // HTTP header has been send and Server response header has been handled

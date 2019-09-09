@@ -1,7 +1,7 @@
-#define VERSION "0.6" // send ALL_OK while booting
-
-// This sketch code is based on the RPLIDAR driver library provided by RoboPeak
+#include <stdint.h>
 #include <RPLidar.h>
+
+#define VERSION "0.6" // send ALL_OK while booting
 
 // You need to create an driver instance
 RPLidar lidar;
@@ -47,9 +47,9 @@ float tolerated_distances[NUM_ZONES];
 #define PIN_BUMPER_DATA  4
 
 #define NUM_BUMP_READ 3
-int bump_values_1[NUM_BUMP_READ];
-int bump_values_2[NUM_BUMP_READ];
-int index_bumper = 0;
+int32_t bump_values_1[NUM_BUMP_READ];
+int32_t bump_values_2[NUM_BUMP_READ];
+int32_t index_bumper = 0;
 
 
 void setup() {
@@ -94,7 +94,7 @@ void setup() {
   tolerated_distances[ZONE_D] = 360.0;
   tolerated_distances[ZONE_E] = 450.0;
   reset_values();
-  for (int i = 0 ; i < NUM_BUMP_READ ; i++) {
+  for (size_t i = 0 ; i < NUM_BUMP_READ ; i++) {
     bump_values_1[i] = 0;
     bump_values_2[i] = 0;
   }
@@ -114,7 +114,7 @@ void setup() {
 
 void reset_values()
 {
-  for (int i = 0 ; i < NUM_ZONES ; i++)
+  for (int32_t i = 0 ; i < NUM_ZONES ; i++)
   {
     min_distances[i] = MAXIMUM_DISTANCE;
   }
@@ -159,12 +159,12 @@ void dump_zones_distances() {
 void handle_complete_rotation()
 {
   //dump_zones_distances();
-  int led_warning = 0;
-  int led_critical = 0;
-  int communication = 0;
+  int32_t led_warning = 0;
+  int32_t led_critical = 0;
+  int32_t communication = 0;
   bool warn_entered = is_warning_zone_entered();
   bool crit_entered = is_critical_zone_entered();
-  int state = COMM_ALL_OK;
+  int32_t state = COMM_ALL_OK;
   if (warn_entered)
   {
     led_warning = 255;
@@ -211,7 +211,7 @@ void send_communication(int state) {
 
 void blink_led()
 {
-  for (int i = 0 ; i < 10 ; i++) {
+  for (size_t i = 0 ; i < 10 ; i++) {
     digitalWrite(PIN_LED_OVERALL_STATUS, 1);
     analogWrite(PIN_LED_CRITICAL, 255);
     analogWrite(PIN_LED_WARNING, 255);
@@ -236,8 +236,8 @@ void bumper_detection()
   index_bumper++;
   if (index_bumper >= NUM_BUMP_READ) {index_bumper = 0; }
 
-  int max_bumps = 3; // hit ratio 3/6 instaed of 1/1 to accomodate for false positives due to vibration of the vehicule while using a mechanical switch
-  int nb_bumps = 0;
+  int32_t max_bumps = 3; // hit ratio 3/6 instaed of 1/1 to accomodate for false positives due to vibration of the vehicule while using a mechanical switch
+  int32_t nb_bumps = 0;
   for (int i = 0 ; i < NUM_BUMP_READ ; i++) {
     nb_bumps += (int)(bump_values_1[i] > 900);
     nb_bumps += (int)(bump_values_2[i] > 900);
@@ -259,7 +259,7 @@ void loop() {
     float distance = lidar.getCurrentPoint().distance; //distance value in mm unit
     float angle    = lidar.getCurrentPoint().angle; //anglue value in degree
     bool  startBit = lidar.getCurrentPoint().startBit; //whether this point is belong to a new scan
-    byte  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
+    uint8_t  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
 
     //perform data processing here...
     if (startBit)

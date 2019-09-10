@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.2.1" // report events false positive fix line_lost
+#define VERSION "0.9.3" // ban int/long in favor of int16/int32 + use wifi module 0.4.2
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"
@@ -62,11 +62,11 @@ String arduino_serial = "";
 
 // Bandeau led
 // PROD
-#define PIN_LED_RED 6
-#define PIN_LED_BLUE 5
+//#define PIN_LED_RED 6
+//#define PIN_LED_BLUE 5
 // // OLD DEV BOARD
-//#define PIN_LED_RED 5
-//#define PIN_LED_BLUE 6
+#define PIN_LED_RED 5
+#define PIN_LED_BLUE 6
 
 #define PIN_LED_GREEN 7
 
@@ -87,7 +87,7 @@ Pixy2 pixy;
 #define MM_PER_TACHO_UNIT  1.377467548  // 260 tacho per rev  / 358.11 mm circumference (114 mm diamter * pi)
 struct dataInEEPROM {
   char fw_version[10];
-  int64_t km; // current km value (will be incremeted by 1 for each 1000m
+  int32_t km; // current km value (will be incremeted by 1 for each 1000m
   float meters;
 };
 dataInEEPROM mydataInEEPROM;
@@ -97,8 +97,8 @@ float current_meters = 0.0f;
 #define SAVE_KM_INTERVAL_IN_SEC  600 // every 10min gives EEPROM a theorical  lifetime of 3.5years on a 2 shifts warehouse.
                                      // worst case scenario, someone turns off the AGV 599sec after the previous save: 
                                      // at 0.33m/s average speed => 0.33*599s = 200m lost in the counter => ok 
-uint64_t last_km_save_in_ms = 0;
-int64_t meters_already_saved = 0;
+uint32_t last_km_save_in_ms = 0;
+int32_t meters_already_saved = 0;
 
 struct bldcMeasure measuredValLeft; // to read battery voltage, tachometer, etc...
 struct bldcMeasure measuredValRight;
@@ -110,35 +110,35 @@ bool battery_low = false;
 
 float inpVoltages[NUM_READING_VOLTAGE];
 float inpDutyCycle[NUM_READING_DUTY];
-int32_t voltage_index = 0;
-int32_t duty_index = 0;
+int16_t voltage_index = 0;
+int16_t duty_index = 0;
 
 float average_voltage = 0.0;
 float average_duty = 0.0;
 
-uint64_t last_voltage_check_in_ms = 0;
-uint64_t last_wifi_data_in_ms = 0;
-uint64_t last_duty_check_in_ms = 0;
+uint32_t last_voltage_check_in_ms = 0;
+uint32_t last_wifi_data_in_ms = 0;
+uint32_t last_duty_check_in_ms = 0;
 
-uint64_t last_tick = 0;
-uint64_t current_tick = 0;
-uint64_t duration = 0;
-uint64_t num_loop = 0;
+uint32_t last_tick = 0;
+uint32_t current_tick = 0;
+uint32_t duration = 0;
+uint32_t num_loop = 0;
 
 
 // this will count how many bumps / lidar_* / line_lost we have to report over wifi
 struct events_to_reports {
-  int32_t num_bumps = 0;
-  int32_t num_lidar_crit = 0;
-  int32_t num_lidar_err = 0;
-  int32_t num_line_lost = 0;
+  int16_t num_bumps = 0;
+  int16_t num_lidar_crit = 0;
+  int16_t num_lidar_err = 0;
+  int16_t num_line_lost = 0;
 };
 events_to_reports my_events_to_report;
 
 // this will let us stop the AGV without stopping the loop() with a delay + detect the event only once to correctly count them
 struct event_detect {
   bool active = false; // if the event is still ongoing or if it's gone
-  int64_t last_seen_in_ms = 0; // when the event happened for the last time
+  uint32_t last_seen_in_ms = 0; // when the event happened for the last time
 };
 event_detect bumped;
 event_detect lidar_crit;
@@ -153,24 +153,24 @@ float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // 
 //#define KSTEEP 1.2 //0.8
 float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
 
-int32_t motor_speed_left = 0;
-int32_t motor_speed_right = 0;
-int32_t motor_speed_left_prev = 0;
-int32_t motor_speed_right_prev = 0;
+int16_t motor_speed_left = 0;
+int16_t motor_speed_right = 0;
+int16_t motor_speed_left_prev = 0;
+int16_t motor_speed_right_prev = 0;
 
-int32_t nominal_speed = NOMINAL_SPEED;
+int16_t nominal_speed = NOMINAL_SPEED;
 
 bool motorstop = false;
-int32_t linePosition = 0;
-uint64_t nbError = 9999;
+int16_t linePosition = 0;
+uint32_t nbError = 9999;
 #define NUM_LINES_OK_TO_START_MOVING 10
-uint64_t nb_line_ok = 0;
+uint32_t nb_line_ok = 0;
 
-int32_t lidar_state = COMM_ALL_OK;
+int16_t lidar_state = COMM_ALL_OK;
 
 // metro stop
-uint64_t metro_stop_counter = 0;
-uint64_t last_barcode_read_tick = 0;
+uint32_t metro_stop_counter = 0;
+uint32_t last_barcode_read_tick = 0;
 
 //enum color{C_OFF, C_RED, C_GREEN, C_BLUE, C_PURPLE, C_LIME, C_CYAN, C_WHITE}; 
 //enum c{_R, _G, _B}; 
@@ -188,7 +188,7 @@ uint64_t last_barcode_read_tick = 0;
 
 
 
-int32_t rgb[NUM_COLORS][3] = {
+int16_t rgb[NUM_COLORS][3] = {
   { 0, 0, 0 },   // C_OFF 
   { 1, 0, 0 },   // C_RED
   { 0, 1, 0 },   // C_GREEN
@@ -213,7 +213,7 @@ void setup() {
   Serial.print("\n");
   
   arduino_serial = "";
-  for (size_t i = 0; i < UniqueIDsize; i++){
+  for (uint16_t i = 0; i < UniqueIDsize; i++){
     arduino_serial += String(UniqueID[i], HEX);
   }
   Serial.print("serial:");
@@ -255,7 +255,7 @@ void setup() {
   
   
   //stay stopped for a while (safe start 3sec)
-  int32_t t = 1000 / NUM_COLORS * 3;
+  int16_t t = 1000 / NUM_COLORS * 3;
   for (size_t i = 0 ; i < 1 ; i++) {
     for (size_t j = 0 ; j < NUM_COLORS ; j++) {
       set_led_color(j); delay(t);
@@ -310,18 +310,18 @@ float get_meters_from_vesc() {
   // update_measured_values() must have been called beforehand
   // /!\ while doing debug with Serial and laptop, resetting the arduino does *NOT* reset the VESC.
   // therefore value of tachometer will be kept unless you manually power off/on the main battery like a regular operator would do 
-  int64_t mytacho = measuredValLeft.tachometer/2 + measuredValRight.tachometer/2;
+  int32_t mytacho = measuredValLeft.tachometer/2 + measuredValRight.tachometer/2;
   return (float)(mytacho) * MM_PER_TACHO_UNIT / 1000.0f ;
 }
 
-int64_t handle_kmeters(){
+int32_t handle_kmeters(){
   current_meters = get_meters_from_vesc() - meters_from_vesc_at_arduino_boot;
   if ((current_tick - last_km_save_in_ms) > (SAVE_KM_INTERVAL_IN_SEC * 1000L)) {  
     // needs saving
     float meters_to_save = mydataInEEPROM.meters + (current_meters - meters_already_saved);
     if (meters_to_save > 1000.0) {
       // increase km
-      int64_t extra_km = (long)(meters_to_save/1000.0);
+      int32_t extra_km = (long)(meters_to_save/1000.0);
       mydataInEEPROM.km += extra_km;
       mydataInEEPROM.meters = meters_to_save - (extra_km*1000.0);
     } else {
@@ -378,10 +378,10 @@ void bumper_detection() {
 }
 
 
-int32_t get_lidar_state()
+int16_t get_lidar_state()
 {
-  int32_t d0 = digitalRead(PIN_LIDAR_DATA_0);
-  int32_t d1 = digitalRead(PIN_LIDAR_DATA_1);
+  int16_t d0 = digitalRead(PIN_LIDAR_DATA_0);
+  int16_t d1 = digitalRead(PIN_LIDAR_DATA_1);
 
   //         D0   D1
   // ALL OK   0    0
@@ -389,7 +389,7 @@ int32_t get_lidar_state()
   // CRIT     1    0
   // ERR      1    1
 
-  int32_t state = 0;
+  int16_t state = 0;
 
   if        ((d0 == 0) && (d1 == 0)) {
     state = COMM_ALL_OK;
@@ -441,11 +441,11 @@ void obstacle_detection()
 }
 
 
-void lecture_pixy_front()
+void read_pixy_front()
 {
 
   int8_t res;
-  int32_t error;
+  int16_t error;
   // int left, right;
   // char buf[96];
   // Get latest data from Pixy, including main vector, new intersections and new barcodes.
@@ -478,7 +478,7 @@ void lecture_pixy_front()
       line_lost.active = false;
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
       // the part of the vector we're heading toward.
-      linePosition = (int32_t)pixy.line.vectors->m_x1 - (int32_t)X_CENTER;
+      linePosition = (int16_t)pixy.line.vectors->m_x1 - (int16_t)X_CENTER;
       //Serial.print(linePosition);
       //Serial.print(" : ");
 
@@ -726,20 +726,20 @@ void wifi_send_data() {
   //if (current_tick - last_wifi_data_in_ms > 30*1000L) {
   if ((current_tick - last_wifi_data_in_ms) > (WIFI_REPORTING_INTERVAL_IN_SECS * 1000L)) {  
     //adresse IP au 29/07: 10.155.100.89
-    String url = "http://10.155.100.89/cgi-bin/insert_magni.py?"
-      + String("NAME=") + String(AGV_NAME)
-      + "&VOLTAGE=" + String(average_voltage) 
-      + "&TACHOMETER=" + String(measuredValLeft.tachometer) 
-      + "&DUTYCYCLE=" + String(average_duty) 
-      + "&CURRENT_TICK=" + String(current_tick) 
-      + "&SERIAL=" + arduino_serial 
-      + "&FW=" + String(VERSION) 
-      + "&KM=" + String(mydataInEEPROM.km) 
-      + "&M=" + String(mydataInEEPROM.meters) 
-      + "&num_bumps=" + String(my_events_to_report.num_bumps) 
-      + "&num_lidar_crit=" + String(my_events_to_report.num_lidar_crit) 
-      + "&num_lidar_err=" + String(my_events_to_report.num_lidar_err) 
-      + "&num_line_lost=" + String(my_events_to_report.num_line_lost) 
+    String url = "?"
+      + String("n=") + String(AGV_NAME)
+      + "&v=" + String(average_voltage) 
+      + "&tc=" + String(measuredValLeft.tachometer) 
+      + "&dc=" + String(average_duty) 
+      + "&ct=" + String(current_tick) 
+      + "&sl=" + arduino_serial 
+      + "&fw=" + String(VERSION) 
+      + "&km=" + String(mydataInEEPROM.km) 
+      + "&m=" + String(mydataInEEPROM.meters) 
+      + "&nb=" + String(my_events_to_report.num_bumps) 
+      + "&nc=" + String(my_events_to_report.num_lidar_crit) 
+      + "&ne=" + String(my_events_to_report.num_lidar_err) 
+      + "&ll=" + String(my_events_to_report.num_line_lost) 
       ; 
     //Serial.print(url); Serial.print("\n");
     last_wifi_data_in_ms = current_tick;
@@ -757,35 +757,40 @@ void wifi_send_data() {
 
 void loop() {
   current_tick = millis();
+  //uint32_t current_tick_us = micros();
   
   update_measured_values();
+  //uint32_t update_measured_values_ms = micros();
   
   handle_kmeters();
+  //uint32_t handle_kmeters_ms = micros();
   
   handle_battery_level();
+  //uint32_t handle_battery_level_ms = micros();
   
   bumper_detection();
+  //uint32_t bumper_detection_ms = micros();
   
   obstacle_detection();
+  //uint32_t obstacle_detection_ms = micros();
   
-  lecture_pixy_front();
+  read_pixy_front();
+  //uint32_t read_pixy_front_ms = micros();
   
   set_motor_speed();
+  //uint32_t set_motor_speed_ms = micros();
   
   update_motors();
+  //uint32_t update_motors_ms = micros();
   
   handle_duty_level();
+  //uint32_t handle_duty_level_ms = micros();
   
   wifi_send_data();
+  //uint32_t wifi_send_data_ms = micros();
   
-  int32_t duration = current_tick - last_tick;
+  uint32_t duration = current_tick - last_tick;
 
-  //Serial.print("millis:\t");
-  //Serial.print("bat:");Serial.print(handle_battery_level_ms - current_tick); Serial.print("\t");
-  //Serial.print("bmp:");Serial.print(handle_battery_level_ms - bumper_detection_ms); Serial.print("\t");
-  //Serial.print("obs:");Serial.print(bumper_detection_ms - obstacle_detection_ms); Serial.print("\t");
-  //Serial.print("pix:");Serial.print(obstacle_detection_ms - lecture_pixy_front_ms); Serial.print("\t");
-  //Serial.print("mtr:");Serial.print(lecture_pixy_front_ms - update_motors_ms); Serial.print("\t");
   
   if (num_loop % (unsigned long)(OBSERVED_FPS) == 0) {
     Serial.print("d:");
@@ -795,6 +800,17 @@ void loop() {
     //Serial.print(hz);
     Serial.print("m:");
     Serial.print(current_meters);
+    //Serial.print("\t");
+    //Serial.print("uvc:");Serial.print(update_measured_values_ms - current_tick_us); Serial.print("\t");
+    //Serial.print("kms:");Serial.print(handle_kmeters_ms - update_measured_values_ms); Serial.print("\t");
+    //Serial.print("bat:");Serial.print(handle_battery_level_ms - handle_kmeters_ms); Serial.print("\t");
+    //Serial.print("bmp:");Serial.print(bumper_detection_ms - handle_battery_level_ms); Serial.print("\t");
+    //Serial.print("obs:");Serial.print(obstacle_detection_ms - bumper_detection_ms); Serial.print("\t");
+    //Serial.print("pix:");Serial.print(read_pixy_front_ms - obstacle_detection_ms); Serial.print("\t");
+    //Serial.print("spd:");Serial.print(set_motor_speed_ms - read_pixy_front_ms); Serial.print("\t");
+    //Serial.print("mtr:");Serial.print(update_motors_ms - set_motor_speed_ms); Serial.print("\t");
+    //Serial.print("dty:");Serial.print(handle_duty_level_ms - update_motors_ms); Serial.print("\t");
+    //Serial.print("wfi:");Serial.print(wifi_send_data_ms - handle_duty_level_ms); Serial.print("\t");
     Serial.print("\n");
   }
   last_tick = current_tick;

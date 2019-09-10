@@ -1,20 +1,16 @@
-#define VERSION "0.4.1"
+#include <ESP8266WiFi.h> // to connect to a wifi network with a single ssid/password
+#include <ESP8266HTTPClient.h> // to make HTTP requests
+#include "wifi_settings.h"  // where we store custome ssid/password (not pushed on github)
+
+#define VERSION "0.4.2"
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
 
-// to connect to a wifi network just with ssid/password
-#include <ESP8266WiFi.h>
-
-// to make HTTP requests
-#include <ESP8266HTTPClient.h>
 
 // warning: the builtin led has an inversed logic: needs to be LOW to be turned on. HIGH turns it off. go figure!?
 #define _WORKING_LED_BUILTIN 2
 
-#include "wifi_settings.h"
-const char* ssid     = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
 
 #define QRY_OK                         0
 #define QRY_ERR_HTTP_ERROR_CODE        1
@@ -47,7 +43,7 @@ void setup() {
      would try to act as both a client and an access-point and could cause
      network-issues with your other WiFi-devices on your WiFi-network. */
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.println();
   Serial.print("MAC: ");
@@ -141,7 +137,6 @@ void wget(){
   
   // wait for WiFi connection
   if (WiFi.status() == WL_CONNECTED) {
-    add_own_params_to_url();
     WiFiClient client;
     HTTPClient http;
     //Serial.print("[HTTP] begin...\n");
@@ -200,6 +195,14 @@ void loop() {
     // typical parameter set
     // ?n=WIFI_DEV&v=24.20&t=1589724&dty=0.23&ct=11202735&sr=6e756e6b776f04d&fw=0.9.3&km=137&m=907.55&bps=0&lc=0&le=0&ll=0
     if        (request.startsWith("?")) {
+      url = url_prefix + request
+        +"&rssi="+String(WiFi.RSSI())
+        +"&channel="+String(WiFi.channel());
+      wget();
+    } else if  (request.startsWith("http")) {
+      url = request
+        +"&rssi="+String(WiFi.RSSI())
+        +"&channel="+String(WiFi.channel());
       wget();
     } else if (request.startsWith("_ST")) {
       print_status(WiFi.status());

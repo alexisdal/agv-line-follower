@@ -62,11 +62,11 @@ String arduino_serial = "";
 
 // Bandeau led
 // PROD
-//#define PIN_LED_RED 6
-//#define PIN_LED_BLUE 5
+#define PIN_LED_RED 6
+#define PIN_LED_BLUE 5
 // // OLD DEV BOARD
-#define PIN_LED_RED 5
-#define PIN_LED_BLUE 6
+//#define PIN_LED_RED 5
+//#define PIN_LED_BLUE 6
 
 #define PIN_LED_GREEN 7
 

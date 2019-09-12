@@ -8,7 +8,7 @@ cad/
 electronics/
 
 # private wifi stuff
-esp8266/esp_wget/wifi_settings.h
+wifi_settings.h
 esp8266/esp_wget/esp_wget.ino.original
 esp8266/pi_server
 

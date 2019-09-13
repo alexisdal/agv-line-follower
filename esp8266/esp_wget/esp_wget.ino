@@ -1,8 +1,9 @@
 #include <ESP8266WiFi.h> // to connect to a wifi network with a single ssid/password
 #include <ESP8266HTTPClient.h> // to make HTTP requests
 #include "wifi_settings.h"  // where we store custome ssid/password (not pushed on github)
+#include "queue.h"  // where we keep request to be sent
 
-#define VERSION "0.4.2"
+#define VERSION "0.5.0.1" // url replay
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
@@ -24,9 +25,24 @@ struct query_response {
 };
 query_response my_response;
 
-String url_prefix = "http://10.155.100.89/cgi-bin/insert.py";
-String url;
-String request;
+Queue q;
+
+// on Sept 12th, the typical request would be like
+// ?n=WIFI_DEV&v=25.00&tc=946207&dc=0.21&ct=6155831&sl=6e756e6b776f0ed&fw=0.9.3&km=154&m=905.74&nb=0&nc=1&ne=0&ll=0
+// 112 bytes (what goes over Serial as input => less keep 160 bytes as max input buffer (so that we have space for future)
+#define MAX_BUF_LEN 160
+char buffer[MAX_BUF_LEN];
+uint16_t bufindex = 0;
+
+
+//String url; // we keep a String var because the HTTP lib example uses it
+#define MAX_URL_LEN 300
+char url[MAX_URL_LEN];
+
+#define IDLE_TIME_BETWEEN_HTTP_REQUESTS_IN_MS 200
+uint32_t current_tick = 0;
+uint32_t last_attempt_in_ms = 0;
+
 void setup() {
 
   Serial.begin(115200);
@@ -108,8 +124,7 @@ void print_status(int32_t status){
 }
 
 void print_signal_strength(){
-  int ss = get_signal_strengh();
-  Serial.print(ss);
+  Serial.print(get_signal_strengh());
   Serial.print("\n");
 }
 
@@ -122,10 +137,31 @@ int32_t get_signal_strengh() {
   }
 }
 
-void add_own_params_to_url(){
-  url = url_prefix + request
-  +"&rssi="+String(WiFi.RSSI())
-  +"&channel="+String(WiFi.channel());
+
+void do_http_requests() {
+  if (q.getNumUsedSlots() <= 0) {
+    return; // nothing to do since queue is empty
+  }
+  
+  //sprintf(url, "http://10.155.100.89/cgi-bin/test.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
+  //sprintf(url, "http://10.155.100.299/invalidip");
+  //sprintf(url, "http://10.155.249.179/valid_server_but_apache_not_running");
+  //sprintf(url, "http://10.155.249.179/cgi-bin/test.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
+  sprintf(url, "http://10.155.100.89/cgi-bin/insert.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
+  Serial.print(url);
+  Serial.print("\n");
+  wget();
+  
+  
+  // pop request if server response starts with 'OK' (otherwise it will be played again
+  if (my_response.query_status == QRY_OK 
+    && (my_response.server_response.startsWith("OK") || my_response.server_response.startsWith("ok") ) ) {
+    q.pop();
+  }
+  //print_query_status();
+  //print_server_response();
+  //Serial.print(q.getNumUsedSlots()); Serial.print("\n");
+    
 }
 
 void wget(){
@@ -181,48 +217,81 @@ void wget(){
 }
 
 
+void handle_input_request() {
+  if (strlen(buffer) <= 0) {
+    return;
+  }
+  
+  if (buffer[0] == '?') {
+    // drop old request if we have no more space left :(
+    if (q.getNumFreeSlots() <= 0) { q.pop(); }
+    q.push(buffer); // enqueue request
+    // reset previous response
+     my_response.duration_in_ms = 0;
+     my_response.query_status = QRY_NO_QUERY;
+     my_response.server_response = "";
+    return;
+  } 
+  
+  if (buffer[0] != '_') {
+    Serial.print("ERROR: invalid request (must start with '?' or '_')\n");
+    return;
+  }
+  
+  if (strlen(buffer) < 3) {
+    Serial.print("ERROR: invalid request code\n");
+    return;
+  }
+
+  if        (strncmp("_ST", buffer, 3) == 0) {
+    print_status(WiFi.status());
+  } else if (strncmp("_IP", buffer, 3) == 0) {
+    print_ip();
+  } else if (strncmp("_FW", buffer, 3) == 0) {
+    print_fw();
+  } else if (strncmp("_MC", buffer, 3) == 0) {
+    print_mac();
+  } else if (strncmp("_QR", buffer, 3) == 0) { // next query in queue
+    Serial.print(q.peek());Serial.print("\n");
+  } else if (strncmp("_QL", buffer, 3) == 0) { // queue length
+    Serial.print(q.getNumUsedSlots());Serial.print("\n");
+  } else if (strncmp("_QS", buffer, 3) == 0) { // last query status
+    print_query_status();
+  } else if (strncmp("_SR", buffer, 3) == 0) { // last server response
+    print_server_response();
+  } else if (strncmp("_SS", buffer, 3) == 0) { // signal strength
+    print_signal_strength();
+  } else if (strncmp("_FL", buffer, 3) == 0) { // flush queue
+    q.flush();
+  } else {
+    Serial.print("ERROR: unknown request\n");
+  }
+}      
+
+// as a general rule, if we push requests too fast while the ESP8266 is busy trying to send requests over a crowded network, then we risk to drop some data on the Serial link...
 void loop() {
+  current_tick = millis();
   
   digitalWrite(_WORKING_LED_BUILTIN, WiFi.status() == WL_CONNECTED ? LOW : HIGH); // HIGH to turn off | LOW to turns on 
-  
+
   while (Serial.available() > 0) {
-    request = Serial.readStringUntil('\n'); // read the incoming data as string
-  }
-  if (request != "") {
-    if (request.endsWith("\n")) {
-      request.remove(request.length()-1);
+    char c = Serial.read(); 
+    if (bufindex < MAX_BUF_LEN - 1 && c != '\n') {
+      buffer[bufindex++] = c;
     }
-    // typical parameter set
-    // ?n=WIFI_DEV&v=24.20&t=1589724&dty=0.23&ct=11202735&sr=6e756e6b776f04d&fw=0.9.3&km=137&m=907.55&bps=0&lc=0&le=0&ll=0
-    if        (request.startsWith("?")) {
-      url = url_prefix + request
-        +"&rssi="+String(WiFi.RSSI())
-        +"&channel="+String(WiFi.channel());
-      wget();
-    } else if  (request.startsWith("http")) {
-      url = request
-        +"&rssi="+String(WiFi.RSSI())
-        +"&channel="+String(WiFi.channel());
-      wget();
-    } else if (request.startsWith("_ST")) {
-      print_status(WiFi.status());
-    } else if (request.startsWith("_IP")) {
-      print_ip();
-    } else if (request.startsWith("_FW")) {
-      print_fw();
-    } else if (request.startsWith("_MAC")) {
-      print_mac();
-    } else if (request.startsWith("_QR")) { 
-      Serial.print(url);Serial.print("\n");
-    } else if (request.startsWith("_QS")) { // query_status
-      print_query_status();
-    } else if (request.startsWith("_SR")) { // server_response
-      print_server_response();
-    } else if (request.startsWith("_SS")) { // signal_strengh
-      print_signal_strength();
-    } else {
-      Serial.print("ERROR: invalid request\n");
+    if (c == '\n') {
+      buffer[bufindex] = '\0';
+      handle_input_request();
+      // reset buffer
+      buffer[0] = '\0'; 
+      bufindex = 0;
     }
-    request = "";
+  } 
+  
+  // dont flood the wifi network in case the server answers with an error message
+  if (current_tick - last_attempt_in_ms > IDLE_TIME_BETWEEN_HTTP_REQUESTS_IN_MS) {
+    do_http_requests();
+    last_attempt_in_ms = millis();
   }
+  
 }

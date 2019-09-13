@@ -1,17 +1,16 @@
-#define VERSION "0.1"
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
 
-// to connect to a wifi network just with ssid/password
-#include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>  // to connect to a wifi network just with ssid/password
+#include <ESP8266HTTPClient.h>  // to make HTTP requests
 #include "wifi_settings.h"  // where we store custome ssid/password (not pushed on github)
 
-// to make HTTP requests
-#include <ESP8266HTTPClient.h>
 
 // warning: the builtin led has an inversed logic: needs to be LOW to be turned on. HIGH turns it off. go figure!?
 #define _WORKING_LED_BUILTIN 2
+
+#define VERSION "0.1"
 
 
 #define QRY_OK                         0
@@ -26,7 +25,7 @@ struct query_response {
 };
 query_response my_response;
 
-String url_prefix = "http://10.155.100.89/cgi-bin/insert.py?NAME=WIFI_MON2";
+String url_prefix = "http://10.155.100.89/cgi-bin/insert.py?NAME=WIFI_MON";
 String url;
 
 void setup() {

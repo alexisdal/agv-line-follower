@@ -28,6 +28,16 @@ public:
     return string;
   }
 
+  // Returns nullptr if queue is empty.
+  const char* peek() {
+    // Is empty?
+    if (numUsedSlots == 0) { 
+      return nullptr;
+    }
+    char* string = store[head];
+    return string;
+  }
+
   // Returns false if queue is full. 
   bool push(const char* string) {
     // Is full?
@@ -48,6 +58,12 @@ public:
     return true;
   }
 
+  void flush() {
+    numUsedSlots = 0;
+    head = 0;
+    tail = 0;
+  }
+
   size_t getNumFreeSlots() {
     return kNumSlots - numUsedSlots;
   }
@@ -56,8 +72,8 @@ public:
     return numUsedSlots;
   }
 
-  static constexpr size_t kNumSlots = 10;
-  static constexpr size_t kSlotSize = 128;
+  static constexpr size_t kSlotSize = 160; // adjusted to size of url params to store in the queue
+  static constexpr size_t kNumSlots = 60; // ajusted to leave 50% of memory left on ESP8266
 private:
   char store[kNumSlots][kSlotSize];
 

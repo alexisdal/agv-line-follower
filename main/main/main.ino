@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.3" // ban int/long in favor of int16/int32 + use wifi module 0.4.2
+#define VERSION "0.9.4" // use wifi module 0.5.0 (enqueue requests)
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"
@@ -740,7 +740,7 @@ void wifi_send_data() {
       + "&nc=" + String(my_events_to_report.num_lidar_crit) 
       + "&ne=" + String(my_events_to_report.num_lidar_err) 
       + "&ll=" + String(my_events_to_report.num_line_lost) 
-      ; 
+      + "\n"; 
     //Serial.print(url); Serial.print("\n");
     last_wifi_data_in_ms = current_tick;
     SERIAL_WIFI.print(url);

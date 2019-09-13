@@ -3,7 +3,7 @@
 #include "wifi_settings.h"  // where we store custome ssid/password (not pushed on github)
 #include "queue.h"  // where we keep request to be sent
 
-#define VERSION "0.5.0" // url replay
+#define VERSION "0.5.0.1" // url replay
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
@@ -39,7 +39,7 @@ uint16_t bufindex = 0;
 #define MAX_URL_LEN 300
 char url[MAX_URL_LEN];
 
-#define IDLE_TIME_BETWEEN_HTTP_REQUESTS_IN_MS 500
+#define IDLE_TIME_BETWEEN_HTTP_REQUESTS_IN_MS 200
 uint32_t current_tick = 0;
 uint32_t last_attempt_in_ms = 0;
 

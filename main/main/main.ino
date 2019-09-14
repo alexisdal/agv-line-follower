@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.4" // use wifi module 0.5.0 (enqueue requests)
+#define VERSION "0.9.4.1" // use wifi module 0.5.0.1 (enqueue requests)
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"

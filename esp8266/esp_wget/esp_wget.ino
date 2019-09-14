@@ -3,7 +3,7 @@
 #include "wifi_settings.h"  // where we store custome ssid/password (not pushed on github)
 #include "queue.h"  // where we keep request to be sent
 
-#define VERSION "0.5.0.1" // url replay
+#define VERSION "0.5.0.2" // url replay
 
 // based on: https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266WiFi/examples/WiFiClient/WiFiClient.ino
 //           https://github.com/esp8266/Arduino/blob/master/libraries/ESP8266HTTPClient/examples/BasicHttpClient/BasicHttpClient.ino
@@ -147,7 +147,7 @@ void do_http_requests() {
   //sprintf(url, "http://10.155.100.299/invalidip");
   //sprintf(url, "http://10.155.249.179/valid_server_but_apache_not_running");
   //sprintf(url, "http://10.155.249.179/cgi-bin/test.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
-  sprintf(url, "http://10.155.100.89/cgi-bin/insert.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
+  sprintf(url, "http://10.155.249.179/cgi-bin/insert.py%s&rssi=%d&channel=%d&queue_size=%d", q.peek(), get_signal_strengh(), WiFi.channel(), q.getNumUsedSlots());
   Serial.print(url);
   Serial.print("\n");
   wget();

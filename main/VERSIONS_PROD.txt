@@ -1,4 +1,8 @@
-updated on 2019-09-02
+updated on 2019-09-13
+    
+2019-09-14: v0.9.4.1  using wifi queue and new vmware server
+
+2019-09-11: v0.9.3  main aligned on arduino int lengths and using shortened urls
 
 2019-09-02: v0.9.2.1
 

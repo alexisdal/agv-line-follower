@@ -10,7 +10,7 @@
 // warning: the builtin led has an inversed logic: needs to be LOW to be turned on. HIGH turns it off. go figure!?
 #define _WORKING_LED_BUILTIN 2
 
-#define VERSION "0.1"
+#define VERSION "0.1.1"
 
 
 #define QRY_OK                         0
@@ -25,7 +25,7 @@ struct query_response {
 };
 query_response my_response;
 
-String url_prefix = "http://10.155.100.89/cgi-bin/insert.py?NAME=WIFI_MON";
+String url_prefix = "http://10.155.249.179/cgi-bin/insert.py?n=WIFI_MON";
 String url;
 
 void setup() {
@@ -36,7 +36,10 @@ void setup() {
 
 
   // We start by connecting to a WiFi network
-  Serial.print("start wifi scan mon using: ");
+  Serial.print("\nstart ");
+  Serial.print(VERSION);
+  Serial.print("\n");
+  Serial.print("wifi scan mon using: ");
   Serial.println(WIFI_SSID);
   Serial.print("\n");
 

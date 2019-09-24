@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.4.1" // use wifi module 0.5.0.1 (enqueue requests)
+#define VERSION "0.9.4.2" // use rplidar 0.7.0 with warn/crit debounce and extended zones
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"

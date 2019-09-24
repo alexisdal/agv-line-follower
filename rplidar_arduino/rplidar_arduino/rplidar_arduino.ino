@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <RPLidar.h>
 
-#define VERSION "0.6" // send ALL_OK while booting
+#define VERSION "0.7.0" // debounce false positives + update detection zones
 
 // You need to create an driver instance
 RPLidar lidar;
@@ -34,10 +34,11 @@ RPLidar lidar;
 #define ZONE_C         3
 #define ZONE_D         4
 #define ZONE_E         5
-#define NUM_ZONES 6
-float min_distances[NUM_ZONES];
-float tolerated_distances[NUM_ZONES];
-#define MAXIMUM_DISTANCE 9999.0
+#define ZONE_F         6
+#define NUM_ZONES 7
+uint16_t min_distances[NUM_ZONES];
+uint16_t tolerated_distances[NUM_ZONES];
+#define MAXIMUM_DISTANCE 9999
 
 
 //bumper data
@@ -47,9 +48,15 @@ float tolerated_distances[NUM_ZONES];
 #define PIN_BUMPER_DATA  4
 
 #define NUM_BUMP_READ 3
-int32_t bump_values_1[NUM_BUMP_READ];
-int32_t bump_values_2[NUM_BUMP_READ];
-int32_t index_bumper = 0;
+int16_t bump_values_1[NUM_BUMP_READ];
+int16_t bump_values_2[NUM_BUMP_READ];
+int16_t index_bumper = 0;
+
+#define NUM_ENTERED_EVENTS 3
+#define NUM_ENTERED_TO_TRIG 2  // 2 "entered" events within the last 3 events trig a positive event (cheap debounce)
+uint16_t index_trig = 0;
+#define ZONE_WARNING 1
+bool last_lidar_entered_events[NUM_ENTERED_EVENTS][2];
 
 
 void setup() {
@@ -87,16 +94,23 @@ void setup() {
   digitalWrite(PIN_BUMPER_DATA, LOW); // send bumper_ok to the main arduino
 
 
-  tolerated_distances[ZONE_CRITICAL] = 210.0;
-  tolerated_distances[ZONE_A] = 250.0;
-  tolerated_distances[ZONE_B] = 260.0;
-  tolerated_distances[ZONE_C] = 300.0;
-  tolerated_distances[ZONE_D] = 360.0;
-  tolerated_distances[ZONE_E] = 450.0;
+  tolerated_distances[ZONE_CRITICAL] = 240;
+  tolerated_distances[ZONE_A] = 290;
+  tolerated_distances[ZONE_B] = 300;
+  tolerated_distances[ZONE_C] = 320;
+  tolerated_distances[ZONE_D] = 355;
+  tolerated_distances[ZONE_E] = 397;
+  tolerated_distances[ZONE_F] = 450;
   reset_values();
   for (size_t i = 0 ; i < NUM_BUMP_READ ; i++) {
-    bump_values_1[i] = 0;
-    bump_values_2[i] = 0;
+    bump_values_1[i] = false;
+    bump_values_2[i] = false;
+  }
+  
+  // reset statuses to later debounce
+  for (size_t i = 0 ; i < NUM_ENTERED_EVENTS ; i++) {
+    last_lidar_entered_events[i][ZONE_CRITICAL] = false;
+    last_lidar_entered_events[i][ZONE_WARNING]  = false;
   }
 
 
@@ -114,7 +128,7 @@ void setup() {
 
 void reset_values()
 {
-  for (int32_t i = 0 ; i < NUM_ZONES ; i++)
+  for (int16_t i = 0 ; i < NUM_ZONES ; i++)
   {
     min_distances[i] = MAXIMUM_DISTANCE;
   }
@@ -133,7 +147,8 @@ bool is_warning_zone_entered()
                || (min_distances[ZONE_B] < tolerated_distances[ZONE_B])
                || (min_distances[ZONE_C] < tolerated_distances[ZONE_C])
                || (min_distances[ZONE_D] < tolerated_distances[ZONE_D])
-               || (min_distances[ZONE_E] < tolerated_distances[ZONE_E]) );
+               || (min_distances[ZONE_E] < tolerated_distances[ZONE_E])
+               || (min_distances[ZONE_F] < tolerated_distances[ZONE_F]) );
 }
 
 bool is_critical_zone_entered()
@@ -159,23 +174,41 @@ void dump_zones_distances() {
 void handle_complete_rotation()
 {
   //dump_zones_distances();
-  int32_t led_warning = 0;
-  int32_t led_critical = 0;
-  int32_t communication = 0;
+  int16_t led_warning = 0;
+  int16_t led_critical = 0;
+  int16_t communication = 0;
   bool warn_entered = is_warning_zone_entered();
   bool crit_entered = is_critical_zone_entered();
-  int32_t state = COMM_ALL_OK;
-  if (warn_entered)
+  last_lidar_entered_events[index_trig][ZONE_WARNING]  = warn_entered;
+  last_lidar_entered_events[index_trig][ZONE_CRITICAL] = crit_entered;
+  index_trig += 1;
+  if (index_trig >= NUM_ENTERED_EVENTS) { index_trig = 0; }
+
+  // sum the latest 3 events
+  uint16_t total_warn_entered = 0;
+  uint16_t total_crit_entered = 0;
+  for (uint16_t i = 0 ; i < NUM_ENTERED_EVENTS; i++) {
+    // false casts to 0 (nothing) / true casts to 1 (something)
+    total_warn_entered += (uint16_t)last_lidar_entered_events[i][ZONE_WARNING];
+    total_crit_entered += (uint16_t)last_lidar_entered_events[i][ZONE_CRITICAL];
+  }
+  
+  // trig when total hits threshold
+  bool warn_trig = total_warn_entered >= NUM_ENTERED_TO_TRIG;
+  bool crit_trig = total_crit_entered >= NUM_ENTERED_TO_TRIG;
+  
+  int16_t state = COMM_ALL_OK;
+  if (warn_trig)
   {
     led_warning = 255;
     state = COMM_WARN;
   }
-  if (crit_entered)
+  if (crit_trig)
   {
     led_critical = 255;
     state = COMM_CRIT;
   }
-  if (!warn_entered && !crit_entered)
+  if (!warn_trig && !crit_trig)
   {
     led_warning = 0;
     led_critical = 0;
@@ -188,7 +221,7 @@ void handle_complete_rotation()
   reset_values();
 }
 
-void send_communication(int state) {
+void send_communication(int16_t state) {
   //         D0   D1
   // ALL OK   0    0
   // WARN     0    1
@@ -215,10 +248,12 @@ void blink_led()
     digitalWrite(PIN_LED_OVERALL_STATUS, 1);
     analogWrite(PIN_LED_CRITICAL, 255);
     analogWrite(PIN_LED_WARNING, 255);
+    digitalWrite(PIN_LED_BUMPER, HIGH);
     delay(50);
     digitalWrite(PIN_LED_OVERALL_STATUS, 0);
     analogWrite(PIN_LED_CRITICAL, 0);
     analogWrite(PIN_LED_WARNING, 0);
+    digitalWrite(PIN_LED_BUMPER, LOW);
     delay(50);
   }
 }
@@ -236,11 +271,11 @@ void bumper_detection()
   index_bumper++;
   if (index_bumper >= NUM_BUMP_READ) {index_bumper = 0; }
 
-  int32_t max_bumps = 3; // hit ratio 3/6 instaed of 1/1 to accomodate for false positives due to vibration of the vehicule while using a mechanical switch
-  int32_t nb_bumps = 0;
-  for (int i = 0 ; i < NUM_BUMP_READ ; i++) {
-    nb_bumps += (int)(bump_values_1[i] > 900);
-    nb_bumps += (int)(bump_values_2[i] > 900);
+  int16_t max_bumps = 3; // hit ratio 3/6 instaed of 1/1 to accomodate for false positives due to vibration of the vehicule while using a mechanical switch
+  int16_t nb_bumps = 0;
+  for (uint16_t i = 0 ; i < NUM_BUMP_READ ; i++) {
+    nb_bumps += (uint16_t)(bump_values_1[i] > 900);
+    nb_bumps += (uint16_t)(bump_values_2[i] > 900);
   }
   
   if (nb_bumps >= max_bumps) { 
@@ -256,8 +291,8 @@ void loop() {
   
   if (IS_OK(lidar.waitPoint()))
   { 
-    float distance = lidar.getCurrentPoint().distance; //distance value in mm unit
-    float angle    = lidar.getCurrentPoint().angle; //anglue value in degree
+    uint16_t distance = (uint16_t)lidar.getCurrentPoint().distance; //distance value in mm unit
+    uint16_t angle    = (uint16_t)lidar.getCurrentPoint().angle; //anglue value in degree (as float, observed values from 0.02 to 510.92. surpringly, ~3% of values have an angle above 360... go figure
     bool  startBit = lidar.getCurrentPoint().startBit; //whether this point is belong to a new scan
     uint8_t  quality  = lidar.getCurrentPoint().quality; //quality of the current measurement
 
@@ -267,47 +302,53 @@ void loop() {
       handle_complete_rotation();
     }
 
-    if ((quality > 10) && (distance > 5.0))
+    if ((quality > 10) && (distance > 5))
     {
 
       // warning zone
-      if ( ((0 <= angle) && (angle < 35.0)) && (distance < min_distances[ZONE_E]) ) {
+      if      ( ((  0 <= angle) && (angle <  40)) && (distance < min_distances[ZONE_F]) ) {
+        min_distances[ZONE_F] = distance;
+      }
+      else if ( (( 40 <= angle) && (angle <  47)) && (distance < min_distances[ZONE_E]) ) {
         min_distances[ZONE_E] = distance;
       }
-      else if ( ((35.0 <= angle && angle < 45.0)) && (distance < min_distances[ZONE_D]) ) {
+      else if ( (( 47 <= angle) && (angle <  55)) && (distance < min_distances[ZONE_D]) ) {
         min_distances[ZONE_D] = distance;
       }
-      else if ( ((45.0 <= angle) && (angle < 60.0)) && (distance < min_distances[ZONE_C]) ) {
+      else if ( (( 55 <= angle) && (angle <  65)) && (distance < min_distances[ZONE_C]) ) {
         min_distances[ZONE_C] = distance;
       }
-      else if ( ((60.0 <= angle && angle < 75.0)) && (distance < min_distances[ZONE_B]) ) {
+      else if ( (( 65 <= angle) && (angle <  75)) && (distance < min_distances[ZONE_B]) ) {
         min_distances[ZONE_B] = distance;
       }
-      else if ( ((75.0 <= angle) && (angle < 90.0)) && (distance < min_distances[ZONE_A]) ) {
+      else if ( (( 75 <= angle) && (angle < 113)) && (distance < min_distances[ZONE_A]) ) {
         min_distances[ZONE_A] = distance;
       }
-      else if ( ((270.0 <= angle) && (angle < 285.0)) && (distance < min_distances[ZONE_A]) ) {
+      else if ( ((247 <= angle) && (angle < 285)) && (distance < min_distances[ZONE_A]) ) {
         min_distances[ZONE_A] = distance;
       }
-      else if ( ((285.0 <= angle && angle < 300.0)) && (distance < min_distances[ZONE_B]) ) {
+      else if ( ((285 <= angle) && (angle < 295)) && (distance < min_distances[ZONE_B]) ) {
         min_distances[ZONE_B] = distance;
       }
-      else if ( ((300.0 <= angle) && (angle < 315.0)) && (distance < min_distances[ZONE_C]) ) {
+      else if ( ((295 <= angle) && (angle < 305)) && (distance < min_distances[ZONE_C]) ) {
         min_distances[ZONE_C] = distance;
       }
-      else if ( ((315.0 <= angle) && (angle < 325.0)) && (distance < min_distances[ZONE_D]) ) {
+      else if ( ((305 <= angle) && (angle < 313)) && (distance < min_distances[ZONE_D]) ) {
         min_distances[ZONE_D] = distance;
       }
-      else if ( ((325.0 <= angle) && (angle <= 360.0)) && (distance < min_distances[ZONE_E]) ) {
+      else if ( ((313 <= angle) && (angle < 320)) && (distance < min_distances[ZONE_E]) ) {
         min_distances[ZONE_E] = distance;
+      }
+      else if ( ((320 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_F]) ) {
+        min_distances[ZONE_F] = distance;
       }
 
 
       // critical zone
-      if ( ((0 <= angle) && (angle <= 90.0)) && (distance < min_distances[ZONE_CRITICAL]) ) {
+      if      ( ((  0 <= angle) && (angle <= 113)) && (distance < min_distances[ZONE_CRITICAL]) ) {
         min_distances[ZONE_CRITICAL] = distance;
       }
-      else if ( ((270 <= angle) && (angle <= 360.0)) && (distance < min_distances[ZONE_CRITICAL]) ) {
+      else if ( ((247 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_CRITICAL]) ) {
         min_distances[ZONE_CRITICAL] = distance;
       }
 

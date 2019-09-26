@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.4.2" // use rplidar 0.7.0 with warn/crit debounce and extended zones
+#define VERSION "0.9.5.0" // ramped velocity
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"
@@ -23,24 +23,12 @@ String arduino_serial = "";
 #define VOLTAGE_WARNING_LEVEL 23.0 // 2x12v lead batteries
 #define VOLTAGE_STOP_LEVEL 22.5 
 
-#define FOUR_INCHES_WHEEL_GEARED
-/*#define OVERBOARD_WHEEL
 
-#ifdef OVERBOARD_WHEEL
-#define ESC_MIN -2500
-#define ESC_STOP 150 // ATTENTION: au debug on s'apercoit qu'en fait la roue s'arrete de tourner dès 1634 -- MEME A VIDE --
-#define ESC_MAX 2500
-#define NOMINAL_SPEED 900
-#define NOMINAL_SPEED_WARNING 550
-#endif*/
-
-#ifdef FOUR_INCHES_WHEEL_GEARED
 #define ESC_MIN -5000
 #define ESC_STOP 150 
 #define ESC_MAX 5000
 #define NOMINAL_SPEED 3000
 #define NOMINAL_SPEED_WARNING 1500
-#endif
 
 #define OBSERVED_FPS 60.0 // how much fps i have measure in my console given everything i do
 #define MAX_LINE_MISS 90 // at 60fps, 90 errors makes 1.5sec without seeing the line
@@ -147,8 +135,8 @@ event_detect line_lost;
 
 int previous_bump_pin_read = 0; // debounce bump events
 
-float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 0.25 / OBSERVED_FPS; // from stop to top speed on 0.50sec  => how much incremental speed we allow per frame
-float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.15 / OBSERVED_FPS; // in 0.30sec => when we brake, we want to brake faster
+float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 4.00 / OBSERVED_FPS; // from stop to top speed in 4.0sec  => how much incremental speed we allow per frame
+float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.50 / OBSERVED_FPS; // in 0.5sec => when we brake, we want to brake faster
 
 //#define KSTEEP 1.2 //0.8
 float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
@@ -158,7 +146,8 @@ int16_t motor_speed_right = 0;
 int16_t motor_speed_left_prev = 0;
 int16_t motor_speed_right_prev = 0;
 
-int16_t nominal_speed = NOMINAL_SPEED;
+int16_t nominal_speed = ESC_STOP;
+int16_t target_nominal_speed = NOMINAL_SPEED;
 
 bool motorstop = false;
 int16_t linePosition = 0;
@@ -285,6 +274,8 @@ void setup() {
   
   pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
   
+  nominal_speed = ESC_STOP; target_nominal_speed = NOMINAL_SPEED; // resume normal speed
+
   Serial.print("init done\n");
 }
 
@@ -372,6 +363,7 @@ void bumper_detection() {
     if (bumped.active) {
       delay(BUMP_STOP_BEFORE_RESUME_DURATION_IN_SECONDS * 1000L); // wait a bit because rplidar needs ~3sec to correctly boot and detect bumps
       bumped.active = false;
+      nominal_speed = ESC_STOP; target_nominal_speed = NOMINAL_SPEED; // resume normal speed
     }
   }
   previous_bump_pin_read = current_bump_pin_read;
@@ -420,11 +412,11 @@ void obstacle_detection()
     lidar_crit.active = true;
     lidar_crit.last_seen_in_ms = current_tick;
   } else if (lidar_state == COMM_WARN) {
-    nominal_speed = NOMINAL_SPEED_WARNING;
-    KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
+    target_nominal_speed = NOMINAL_SPEED_WARNING;
+    //KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
   } else {
-    nominal_speed = NOMINAL_SPEED;
-    KSTEEP = (NOMINAL_SPEED - ESC_STOP);
+    target_nominal_speed = NOMINAL_SPEED;
+    //KSTEEP = (NOMINAL_SPEED - ESC_STOP);
   }
   
   // reset flags after correct duration
@@ -476,6 +468,8 @@ void read_pixy_front()
       // require 5 correct line to start moving => goal = when line is lost, do not trigger an addtional line_lost event when a line appears in a frame and disappears in the following frame
       if (line_lost.active && nb_line_ok <= NUM_LINES_OK_TO_START_MOVING) { return; }
       line_lost.active = false;
+      
+
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
       // the part of the vector we're heading toward.
       linePosition = (int16_t)pixy.line.vectors->m_x1 - (int16_t)X_CENTER;
@@ -536,8 +530,7 @@ void unloading_stop() {
 void batt_low_stop() {
   if (battery_low) {
   
-  stop_motors(); 
-  update_motors();
+  stop_motors(); update_motors();
   
   while(1) {
     set_led_color(C_BLUE);
@@ -550,7 +543,8 @@ void batt_low_stop() {
 
 
 void stop_motors() {
-  
+  nominal_speed = ESC_STOP;
+  target_nominal_speed = ESC_STOP;
   motor_speed_left = 0;
   motor_speed_right = 0;
   motorstop=true;
@@ -562,16 +556,19 @@ void set_motor_speed() {
     stop_motors(); set_led_color(C_PURPLE);
     return;
   }
-  if (lidar_err.active) {
-    stop_motors(); set_led_color(C_LIME);
-    return;
-  }
-  if (lidar_crit.active || bumped.active) {
+  if (bumped.active) {
     stop_motors(); set_led_color(C_RED);
     return;
   }
   
-  if (battery_low) {
+  
+  if (lidar_err.active) {
+    target_nominal_speed = ESC_STOP;
+    set_led_color(C_LIME);
+  } else if (lidar_crit.active) {
+    target_nominal_speed = ESC_STOP;
+    set_led_color(C_RED);
+  } else if (battery_low) {
     set_led_color( ((current_tick/1000L) % 2 == 0) ? C_BLUE : C_OFF); // blink blue/off every second
   } else if (battery_warning) {
     set_led_color(C_BLUE);
@@ -587,9 +584,29 @@ void follow_line()
 
   float factor = (float)linePosition / (pixy.frameWidth / 2);
 
-  motor_speed_left_prev  = motor_speed_left;
-  motor_speed_right_prev = motor_speed_right;
+  // handle acceleration
+  if (nominal_speed < target_nominal_speed) {
+    nominal_speed += acc_limit_positive;
+    if (nominal_speed > target_nominal_speed) { nominal_speed = target_nominal_speed; }
+  }
+  // handle deceleration
+  if (nominal_speed > target_nominal_speed) {
+    nominal_speed -= acc_limit_negative;
+    if (nominal_speed < target_nominal_speed) { nominal_speed = target_nominal_speed; }
+  }
+  //KSTEEP = (nominal_speed - ESC_STOP) * 1.025f; // how it should have been
+  KSTEEP = (nominal_speed - ESC_STOP);
+  
+  //Serial.print("ts:");
+  //Serial.print(target_nominal_speed);
+  //Serial.print("\tns:");
+  //Serial.print(nominal_speed);
+  //Serial.print("\tk:");
+  //Serial.print(KSTEEP);
+  //Serial.print("\n");
+  
 
+  // now adjust left/right wheel speeed
   if (linePosition == 0)
   {
     motor_speed_left  = nominal_speed;
@@ -608,35 +625,6 @@ void follow_line()
     motor_speed_right = nominal_speed;
   }
 
-  // handle acceleration limits
-  int acc_left = motor_speed_left - motor_speed_left_prev;
-  if (acc_left > 0 && acc_left > +acc_limit_positive) {
-    motor_speed_left = motor_speed_left_prev + acc_limit_positive;
-  }
-  if (acc_left < 0 && acc_left < -acc_limit_negative) {
-    motor_speed_left = motor_speed_left_prev - acc_limit_negative;
-  }
-  int acc_right = motor_speed_right - motor_speed_right_prev;
-  if (acc_right > 0 && acc_right > +acc_limit_positive) {
-    motor_speed_right = motor_speed_right_prev + acc_limit_positive;
-  }
-  if (acc_right < 0 && acc_right < -acc_limit_negative) {
-    motor_speed_right = motor_speed_right_prev - acc_limit_negative;
-  }
-
-  //Serial.print("avgMotorCurrent Left: ");
-  //Serial.print(measuredValLeft.avgMotorCurrent);
-  //Serial.print("\t");
-  //Serial.print("avgMotorCurrent Right: ");
-  //Serial.print(measuredValRight.avgMotorCurrent);
-  //Serial.print("\n");
-  //
-  //Serial.print("avgInputCurrent Left: ");
-  //Serial.print(measuredValLeft.avgInputCurrent);
-  //Serial.print("\t");
-  //Serial.print("avgInputCurrent Right: ");
-  //Serial.print(measuredValRight.avgInputCurrent);
-  //Serial.print("\n");
 }
 
 bool test_spd = false;
@@ -652,13 +640,13 @@ void update_motors() {
 }
 
 void moveMotorLeft(int motor_speed) {
-  if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
+  if (motor_speed < 0) motor_speed = 0;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
 
   VescUartSetRPM(motor_speed, &SERIAL_LEFT);
 }
 void moveMotorRight(int motor_speed) {
-  if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
+  if (motor_speed < 0) motor_speed = 0;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
   
   VescUartSetRPM(motor_speed, &SERIAL_RIGHT);

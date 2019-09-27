@@ -5,10 +5,10 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.0" // ramped velocity
+#define VERSION "0.9.5.1" // lidar 0.7.1
 
 String arduino_serial = "";
-#define AGV_NAME "AGV_DEV"
+#define AGV_NAME "AGV2"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line

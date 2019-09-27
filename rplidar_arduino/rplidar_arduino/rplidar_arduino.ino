@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <RPLidar.h>
 
-#define VERSION "0.7.0" // debounce false positives + update detection zones
+#define VERSION "0.7.1" // extended detection zones (crit @ 290 mm + warn @ 575 mm)
 
 // You need to create an driver instance
 RPLidar lidar;
@@ -94,13 +94,13 @@ void setup() {
   digitalWrite(PIN_BUMPER_DATA, LOW); // send bumper_ok to the main arduino
 
 
-  tolerated_distances[ZONE_CRITICAL] = 240;
-  tolerated_distances[ZONE_A] = 290;
-  tolerated_distances[ZONE_B] = 300;
-  tolerated_distances[ZONE_C] = 320;
-  tolerated_distances[ZONE_D] = 355;
-  tolerated_distances[ZONE_E] = 397;
-  tolerated_distances[ZONE_F] = 450;
+  tolerated_distances[ZONE_CRITICAL] = 290;
+  tolerated_distances[ZONE_A] = 330;
+  tolerated_distances[ZONE_B] = 342;
+  tolerated_distances[ZONE_C] = 364;
+  tolerated_distances[ZONE_D] = 403;
+  tolerated_distances[ZONE_E] = 451;
+  tolerated_distances[ZONE_F] = 575;
   reset_values();
   for (size_t i = 0 ; i < NUM_BUMP_READ ; i++) {
     bump_values_1[i] = false;
@@ -306,10 +306,10 @@ void loop() {
     {
 
       // warning zone
-      if      ( ((  0 <= angle) && (angle <  40)) && (distance < min_distances[ZONE_F]) ) {
+      if      ( ((  0 <= angle) && (angle <  35)) && (distance < min_distances[ZONE_F]) ) {
         min_distances[ZONE_F] = distance;
       }
-      else if ( (( 40 <= angle) && (angle <  47)) && (distance < min_distances[ZONE_E]) ) {
+      else if ( (( 35 <= angle) && (angle <  47)) && (distance < min_distances[ZONE_E]) ) {
         min_distances[ZONE_E] = distance;
       }
       else if ( (( 47 <= angle) && (angle <  55)) && (distance < min_distances[ZONE_D]) ) {
@@ -336,10 +336,10 @@ void loop() {
       else if ( ((305 <= angle) && (angle < 313)) && (distance < min_distances[ZONE_D]) ) {
         min_distances[ZONE_D] = distance;
       }
-      else if ( ((313 <= angle) && (angle < 320)) && (distance < min_distances[ZONE_E]) ) {
+      else if ( ((313 <= angle) && (angle < 325)) && (distance < min_distances[ZONE_E]) ) {
         min_distances[ZONE_E] = distance;
       }
-      else if ( ((320 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_F]) ) {
+      else if ( ((325 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_F]) ) {
         min_distances[ZONE_F] = distance;
       }
 

@@ -2,6 +2,11 @@ pixy2 line follow
 
 0. connect in pixyMon. display live stream
 1. File > Restaure defaults parameters  => pixy reboots (black screen, then video stream is back after a few secs) => params have been reset
+2. File > Load Pixy Parameters > select "parametres_pixy_prod.prm" 
+
+
+----------------------
+
 2. Program > line tracking
 3. File > configure
 pixy parameters (saved on pixy) 

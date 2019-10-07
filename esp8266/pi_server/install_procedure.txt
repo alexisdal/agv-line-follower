@@ -1,0 +1,44 @@
+0. made from an Ubuntu Server 18.04 LTS 64bits naked
+apt update
+apt upgrade
+reboot
+
+#install apache & mysql
+apt install apache2 mysql-server
+
+# install/enable cgi-bin on python
+a2enmod cgi  # activate cgi-bin
+systemctl restart apache2  # restart apache2 to activate change
+
+# install pysql (python module)
+apt install python3-pymysql
+
+# upload esp8266/pi_server/ scripts in /usr/lib/cgi-bin/
+# (ex: using winscp or scp)
+
+# make them executable
+chmod +x /usr/lib/cgi-bin/*.py
+
+
+# edit /etc/mysql/mysql.conf.d/mysqld.cnf
+# and change 
+# bind-address            = 127.0.0.1
+# to 
+# bind-address            = 0.0.0.0
+# in order to access the database from your development PC
+# and restart mysql
+service mysql restart
+
+# create database using mysql scripts or a mysqldump dataset
+#backup: # mysqldump -u root -p[root_password] [database_name] > dumpfilename.sql
+
+# create a dump on previous server
+# mysqldump -u root agvdb > dumpfilename.sql
+# create database on new server (as root)
+echo "CREATE DATABASE agvdb;" | mysql -u root
+
+# restore mysqldump
+#restore:# mysql -u root [database_name] < dumpfilename.sql
+mysql -u root agvdb < dumpfilename.sql
+
+

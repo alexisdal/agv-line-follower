@@ -10,7 +10,7 @@ electronics/
 # private wifi stuff
 wifi_settings.h
 esp8266/esp_wget/esp_wget.ino.original
-esp8266/pi_server
+esp8266/_old
 
 # main
 main/pixy2_vesc*

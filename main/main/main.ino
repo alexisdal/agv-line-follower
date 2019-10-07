@@ -5,10 +5,10 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.1" // lidar 0.7.1
+#define VERSION "0.9.5.2" // using raspberry pi as wifi&logging device instead of ESP8266
 
 String arduino_serial = "";
-#define AGV_NAME "AGV2"
+#define AGV_NAME "AGV_DEV"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -454,6 +454,7 @@ void read_pixy_front()
     {
       stop_motors(); update_motors();
       if (!line_lost.active) {
+        SERIAL_WIFI.print("e\tline_loss\n");
         line_lost.active = true;
         my_events_to_report.num_line_lost += 1;
         nb_line_ok = 0;
@@ -514,31 +515,38 @@ void handle_metro_stop() {
       delay(1000L * METRO_STATION_STOP_DURATION_IN_SECONDS);
     }
     metro_stop_counter++;
+    last_barcode_read_tick = millis();
   }
-  last_barcode_read_tick = millis();
 }
 
 void unloading_stop() {
   if (current_tick - last_barcode_read_tick > 1000) {
-      stop_motors(); update_motors();
-      set_led_color(C_CYAN);
-      delay(1000L * PORT_STOP_DURATION_IN_SECONDS);
+    SERIAL_WIFI.print("e\tunloading_stop\n");
+    stop_motors(); update_motors();
+    set_led_color(C_CYAN);
+    delay(1000L * PORT_STOP_DURATION_IN_SECONDS);
+    last_barcode_read_tick = millis();
   }
-  last_barcode_read_tick = millis();
 }
 
 void batt_low_stop() {
-  if (battery_low) {
   
-  stop_motors(); update_motors();
-  
-  while(1) {
-    set_led_color(C_BLUE);
-    delay(1000);
-      set_led_color(C_OFF);
-    delay(1000);
-    }
-  } 
+  if (current_tick - last_barcode_read_tick > 1000) {
+    SERIAL_WIFI.print("e\tbatt_low_stop\n");
+    
+    if (battery_low) {
+    
+      stop_motors(); update_motors();
+      
+      while(1) {
+        set_led_color(C_BLUE);
+        delay(1000);
+          set_led_color(C_OFF);
+        delay(1000);
+      }
+    } 
+    last_barcode_read_tick = millis();
+  }
 }
 
 
@@ -597,14 +605,6 @@ void follow_line()
   //KSTEEP = (nominal_speed - ESC_STOP) * 1.025f; // how it should have been
   KSTEEP = (nominal_speed - ESC_STOP);
   
-  //Serial.print("ts:");
-  //Serial.print(target_nominal_speed);
-  //Serial.print("\tns:");
-  //Serial.print(nominal_speed);
-  //Serial.print("\tk:");
-  //Serial.print(KSTEEP);
-  //Serial.print("\n");
-  
 
   // now adjust left/right wheel speeed
   if (linePosition == 0)
@@ -624,6 +624,18 @@ void follow_line()
     motor_speed_left  = nominal_speed - KSTEEP * (-1) * factor;
     motor_speed_right = nominal_speed;
   }
+
+  SERIAL_WIFI.print(linePosition);
+  SERIAL_WIFI.print("\t");
+  //SERIAL_WIFI.print(factor);
+  //SERIAL_WIFI.print("\t");
+  SERIAL_WIFI.print(nominal_speed);
+  //SERIAL_WIFI.print("\t");
+  //SERIAL_WIFI.print(motor_speed_left);
+  //SERIAL_WIFI.print("\t");
+  //SERIAL_WIFI.print(motor_speed_right);
+  SERIAL_WIFI.print("\n");
+
 
 }
 
@@ -788,7 +800,7 @@ void loop() {
     //Serial.print(hz);
     Serial.print("m:");
     Serial.print(current_meters);
-    //Serial.print("\t");
+    Serial.print("\t");
     //Serial.print("uvc:");Serial.print(update_measured_values_ms - current_tick_us); Serial.print("\t");
     //Serial.print("kms:");Serial.print(handle_kmeters_ms - update_measured_values_ms); Serial.print("\t");
     //Serial.print("bat:");Serial.print(handle_battery_level_ms - handle_kmeters_ms); Serial.print("\t");

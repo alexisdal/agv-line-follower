@@ -1,0 +1,23 @@
+CREATE TABLE `agv` (
+  `NAME` varchar(40) DEFAULT NULL,
+  `VOLTAGE` float DEFAULT NULL,
+  `TACHOMETER` int(11) DEFAULT NULL,
+  `DUTYCYCLE` float DEFAULT NULL,
+  `CURRENT_TICK` int(11) DEFAULT NULL,
+  `SERIAL` varchar(20) DEFAULT NULL,
+  `FW` varchar(20) DEFAULT NULL,
+  `KM` int(11) DEFAULT NULL,
+  `M` float DEFAULT NULL,
+  `num_bumps` int(11) DEFAULT '0',
+  `num_lidar_crit` int(11) DEFAULT '0',
+  `num_lidar_err` int(11) DEFAULT '0',
+  `num_line_lost` int(11) DEFAULT '0',
+  `num_ssid` int(11) DEFAULT NULL,
+  `dur_scan` int(11) DEFAULT NULL,
+  `rssi` int(11) DEFAULT NULL,
+  `channel` int(11) DEFAULT NULL,
+  `queue_size` int(11) DEFAULT NULL,
+  `DATE` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY `NAME` (`NAME`),
+  KEY `DATE` (`DATE`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;

@@ -10,9 +10,17 @@
             margin        : 0;
             background-color: #BBB;
         }
-        #info {
+        #toggl_manual {
             position    : absolute;
             top        : 0px;
+            width        : 100%;
+            padding        : 10px;
+            text-align    : center;
+            font-size: 1.2em;
+        }
+        #info {
+            position    : absolute;
+            top        : 40px;
             width        : 100%;
             padding        : 5px;
             text-align    : center;
@@ -33,13 +41,70 @@
             -webkit-user-select    : none;
             -moz-user-select    : none;
         }
+        #motor_speed_bargraph_container {
+            position    : absolute;
+            top         : 40px;
+            width       : 100%;
+            height      : 250px;
+            padding     : 5px;
+            text-align  : center;
+        }
         </style>
     </head>
     <body>
         <div id="container"></div>
+        <div id="toggl_manual">
+            <input type="checkbox" id="toggl_manual_chkbx" name="manual_drive"  />
+            <label for="toggl_manual_chkbx">Manual Drive</label>
+        </div>
         <div id="info">
             <span id="result"></span>
         </div>
+        <div id="motor_speed_bargraph_container"></div>
+
+        
+        <script src="/highcharts.js"></script>
+        <script>
+            // useful tool => https://jsfiddle.net/gh/get/library/pure/highcharts/highcharts/tree/master/samples/highcharts/demo/column-negative/
+            var mychart = Highcharts.chart('motor_speed_bargraph_container', {
+                chart: {
+                    type: 'column',
+                    animation: false
+                },
+                title: {
+                    text: ''
+                },
+                xAxis: {
+                    categories: [
+                        'left',
+                        'right',
+                    ],
+                },
+                yAxis: {
+                    min: -3000,
+                    max: +3000,
+                    title: {
+                        text: 'speed (e-rpm)'
+                    }
+                },
+                plotOptions: {
+                    series: {
+                        animation: false
+                    }
+                },                
+                credits: {
+                    enabled: false
+                },
+                legend: {
+                    enabled: false
+                },                
+                series: [{
+                    data: [0, 0]
+                }]
+            });
+        </script>
+
+
         <script src="/virtualjoystick.js"></script>
         <script>
             console.log("touchscreen is", VirtualJoystick.touchScreenAvailable() ? "available" : "not available");
@@ -47,6 +112,8 @@
             var joystick    = new VirtualJoystick({
                 container    : document.getElementById('container'),
                 mouseSupport    : true,
+                limitStickTravel: true,
+                stickRadius	: 150
             });
             joystick.addEventListener('touchStart', function(){
                 console.log('down')
@@ -60,30 +127,51 @@
             //var socket = io();
             //let socket = new WebSocket("ws://mtba00000:3000");
             const socket = new WebSocket("ws://"+window.location.hostname+":3000");
-            //socket.onopen = event => console.log("Connected:", event);
-            //socket.onclose = event => console.log("Connection lost:", event);
-            //socket.onmessage = event => console.log("Received:", JSON.parse(event.data));
-    
+            socket.onopen = event => { 
+                console.log("Connected:", event); 
+                var outputEl    = document.getElementById('result');
+                outputEl.innerHTML    = '<b>Connected to event server</b>'
+            }
+            socket.onclose = event => console.log("Connection lost:", event);
+            socket.onmessage = event => {
+                var j = JSON.parse(event.data)
+                console.log("Received:", j);
+                //mychart.series[0].data = [j.l, j.r];
+                mychart.series[0].update({
+                    data: [j.l, j.r]
+                }, true); //true / false to redraw
+            }
             setInterval(function(){
                 var outputEl    = document.getElementById('result');
-                var dx = joystick.deltaX();
-                var dy = joystick.deltaY();
-                outputEl.innerHTML    = '<b>Result:</b> '
-                    + ' dx:'+dx
-                    + ' dy:'+dy
-                    + (joystick.right()    ? ' right'    : '')
-                    + (joystick.up()       ? ' up'        : '')
-                    + (joystick.left()     ? ' left'    : '')
-                    + (joystick.down()     ? ' down'     : '');
-                if (dx != 0.0 && dy != 0.0 && prev_dx != 0.0 && prev_dx != 0.0) {
+                
+                var dx = Math.round(joystick.deltaX());
+                var dy = Math.round(joystick.deltaY());
+                if (!(dx == 0.0 && dy == 0.0 && prev_dx == 0.0 && prev_dx == 0.0)) {
+                    outputEl.innerHTML    = '<b>joy:</b> '
+                        + ' dx:'+dx
+                        + ' dy:'+dy;
 
-                    var xy = Math.round(dx) + '|' + Math.round(dy);
-                    socket.send("xy:"+xy);
+                    var xy = Math.round(dx) + '|' + (-Math.round(dy));
+                    var msg = "xy:"+xy;
+                    console.log("sent: "+msg);
+                    socket.send(msg);
                 }
                 prev_dx = dx;
                 prev_dy = dy;
 
             }, 1.0/60.0 * 1000);
+            
+            document.getElementById("toggl_manual_chkbx").onclick = function() {
+                var chkbx = document.getElementById("toggl_manual_chkbx");
+                document.getElementById('result').innerHTML = "<b>"+(chkbx.checked ? "MANUAL":"AUTO") + " DRIVE</b>";
+                
+                //#define DRIVE_AUTO   0
+                //#define DRIVE_MANUAL 1
+                socket.send("drive:"+(chkbx.checked ? "1":"0"));
+            } 
+            
         </script>
+        
+        
     </body>
 </html>

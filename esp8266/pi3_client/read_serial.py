@@ -21,8 +21,22 @@ def log(line):
 
 
 def run():
-    ser = serial.Serial ("/dev/ttyAMA0", 115200)    #Open port with baud rate
+    ser = serial.Serial ("/dev/ttyAMA0", 115200, timeout=0.020)    #Open port with baud rate
+    redis_db = redis.StrictRedis(host="localhost", port=6379, db=0)
+    redis_db.delete("mycmds") # flush previous commands
     while True:
+        # handle incoming request
+        llen = redis_db.llen("mycmds")
+        if llen > 0:
+            cmd = redis_db.lpop("mycmds").decode("ascii").strip()
+            print(cmd)
+            ser.write((cmd+"\n").encode("ascii"))
+            if llen > 6:  # if the queue gets too long, we'll dequeue some commands without sending to the robot
+                extra_cmds_to_drop = llen - 4
+                for i in range(0, extra_cmds_to_drop):
+                    redis_db.lpop("mycmds")
+            
+
         data = ser.readline()
         try:
             data = data.decode("ascii").strip()
@@ -34,7 +48,8 @@ def run():
             send_over_wifi(data)
         elif "\t" in data:
             log(data)
-            
+        
+        
 
 
 if __name__ == "__main__":

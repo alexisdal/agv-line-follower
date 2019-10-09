@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.2" // using raspberry pi as wifi&logging device instead of ESP8266
+#define VERSION "0.9.5.3" // accepting incoming request from raspberry pi 
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"
@@ -175,6 +175,14 @@ uint32_t last_barcode_read_tick = 0;
 #define C_CYAN   6
 #define C_WHITE  7 
 
+// incoming requests
+#define MAX_BUF 64
+char buf[MAX_BUF]; // command received on serial
+uint8_t bufindex; //index
+
+#define DRIVE_AUTO   0
+#define DRIVE_MANUAL 1
+uint8_t driving_mode = DRIVE_AUTO;
 
 
 int16_t rgb[NUM_COLORS][3] = {
@@ -452,8 +460,8 @@ void read_pixy_front()
     //Serial.print("\t");
     if (nbError > MAX_LINE_MISS) // given that loops runs at 62 fps => 90 errors makes it 1.5sec => at 0.4m/s it's about 60cm run
     {
-      stop_motors(); update_motors();
       if (!line_lost.active) {
+        stop_motors(); update_motors();
         SERIAL_WIFI.print("e\tline_loss\n");
         line_lost.active = true;
         my_events_to_report.num_line_lost += 1;
@@ -560,6 +568,16 @@ void stop_motors() {
 
 void set_motor_speed() {
   
+  // for manual drive, just blink purple and return
+  if (driving_mode == DRIVE_MANUAL) {
+    if ((current_tick/500L ) % 2 == 0) {
+      set_led_color(C_PURPLE);
+    } else {
+      set_led_color(C_OFF);
+    }
+    return;
+  }
+  
   if (line_lost.active) {
     stop_motors(); set_led_color(C_PURPLE);
     return;
@@ -639,26 +657,19 @@ void follow_line()
 
 }
 
-bool test_spd = false;
-
 void update_motors() {
-  if (test_spd) {
-    int test_speed = 600;
-    motor_speed_left  = test_speed;
-    motor_speed_right = test_speed;
-  }
   moveMotorLeft(motor_speed_left);
   moveMotorRight(motor_speed_right);
 }
 
 void moveMotorLeft(int motor_speed) {
-  if (motor_speed < 0) motor_speed = 0;
+  if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
 
   VescUartSetRPM(motor_speed, &SERIAL_LEFT);
 }
 void moveMotorRight(int motor_speed) {
-  if (motor_speed < 0) motor_speed = 0;
+  if (motor_speed < ESC_MIN) motor_speed = ESC_MIN;
   if (motor_speed > ESC_MAX) motor_speed = ESC_MAX;
   
   VescUartSetRPM(motor_speed, &SERIAL_RIGHT);
@@ -754,6 +765,71 @@ void wifi_send_data() {
   }
 }
 
+void parse_command(char * cmd) {
+  //Serial.print(cmd);   Serial.print("\n");
+  
+  if (strlen(cmd) < 2)
+    return;
+  
+  if (cmd[0] == 'D') { // driving mode
+    if (cmd[1] == '0') {
+      driving_mode = DRIVE_AUTO;
+      target_nominal_speed = NOMINAL_SPEED;
+    } else if (cmd[1] == '1') {
+      driving_mode = DRIVE_MANUAL;
+      stop_motors(); update_motors();
+    }
+    
+  } else if (cmd[0] == 'M') { // manual motor command
+    parse_motor_cmd(cmd + 1);
+  }  
+}
+
+void parse_motor_cmd(char * cmd){
+  // we accept motor_cmds only while manual driving
+  if (driving_mode != DRIVE_MANUAL) 
+     return;
+  
+  char * tmp;
+  char * str;
+  str = strtok_r(cmd, " ", &tmp);
+  while (str != NULL) {
+    if (str[0] == 'L') {
+      motor_speed_left = atoi(str + 1);
+    } else if (str[0] == 'R') {
+      motor_speed_right = atoi(str + 1);
+    }
+    str = strtok_r(NULL, " ", &tmp);
+  }
+  
+}
+
+void handle_incoming_cmd() {
+  // grab incoming cmd if any
+  while (SERIAL_WIFI.available() > 0) {
+    if (bufindex > MAX_BUF - 1) {
+      bufindex = 0;
+      *buf = 0;
+      Serial.print("ko overflow\n");
+      break;
+    }
+
+    char c = SERIAL_WIFI.read();
+    //Serial.print(String("'") + String(c)+ String("'\n"));
+    buf[bufindex++] = c;
+
+    if (c == '\n') {
+      buf[--bufindex] = 0;
+	    //Serial.print(buf);
+      //Serial.print("\n");
+      parse_command(buf);
+      *buf = 0;
+      bufindex = 0;
+    }
+  }
+  
+}
+
 
 void loop() {
   current_tick = millis();
@@ -788,6 +864,8 @@ void loop() {
   
   wifi_send_data();
   //uint32_t wifi_send_data_ms = micros();
+  
+  handle_incoming_cmd();
   
   uint32_t duration = current_tick - last_tick;
 

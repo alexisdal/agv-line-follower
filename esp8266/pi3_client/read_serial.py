@@ -18,7 +18,18 @@ def log(line):
     l = str(datetime.now())+"\t"+line+"\n"
     with open("/var/log/agv.log", "a") as myfile:
         myfile.write(l)
-
+    
+def append_to_redis_data_graph(redis_db, line):
+    redis_db.rpush("mylogs", line)
+    llen = redis_db.llen("mylogs")
+    # drop extra_lines if any
+    if (llen > 3000):
+        extra_cmds_to_drop = llen - 3000
+        for i in range(0, extra_cmds_to_drop):
+            redis_db.lpop("mylogs")
+        
+    
+        
 
 def run():
     ser = serial.Serial ("/dev/ttyAMA0", 115200, timeout=0.020)    #Open port with baud rate
@@ -48,6 +59,7 @@ def run():
             send_over_wifi(data)
         elif "\t" in data:
             log(data)
+            append_to_redis_data_graph(redis_db, data)
         
         
 

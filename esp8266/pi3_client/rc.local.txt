@@ -2,5 +2,6 @@
 
 python3 /root/read_serial.py &
 python3 /root/wifi_handle.py &
+python3 /root/websocket_server.py
 
 

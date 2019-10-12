@@ -5,10 +5,10 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.3" // accepting incoming request from raspberry pi 
+#define VERSION "0.9.5.4" // smoothing linePosition + reintroduce motor acceleration limits like 0.9.4.x
 
 String arduino_serial = "";
-#define AGV_NAME "AGV_DEV"
+#define AGV_NAME "AGV2"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -137,6 +137,7 @@ int previous_bump_pin_read = 0; // debounce bump events
 
 float acc_limit_positive = (NOMINAL_SPEED - ESC_STOP) / 4.00 / OBSERVED_FPS; // from stop to top speed in 4.0sec  => how much incremental speed we allow per frame
 float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.50 / OBSERVED_FPS; // in 0.5sec => when we brake, we want to brake faster
+float acc_limit_motor    = (NOMINAL_SPEED - ESC_STOP) / 0.40 / OBSERVED_FPS; // to limit vibrations  
 
 //#define KSTEEP 1.2 //0.8
 float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
@@ -154,6 +155,10 @@ int16_t linePosition = 0;
 uint32_t nbError = 9999;
 #define NUM_LINES_OK_TO_START_MOVING 10
 uint32_t nb_line_ok = 0;
+
+#define NUM_LINE_POS_AVERAGE_WINDOW 4
+int16_t linePositionValues[NUM_LINE_POS_AVERAGE_WINDOW];
+uint16_t linePositionIndex = 0;
 
 int16_t lidar_state = COMM_ALL_OK;
 
@@ -183,6 +188,9 @@ uint8_t bufindex; //index
 #define DRIVE_AUTO   0
 #define DRIVE_MANUAL 1
 uint8_t driving_mode = DRIVE_AUTO;
+
+
+
 
 
 int16_t rgb[NUM_COLORS][3] = {
@@ -283,6 +291,8 @@ void setup() {
   pixy.setLamp(1, 1); // Turn on both lamps, upper and lower for maximum exposure
   
   nominal_speed = ESC_STOP; target_nominal_speed = NOMINAL_SPEED; // resume normal speed
+
+  reset_line_position();
 
   Serial.print("init done\n");
 }
@@ -462,6 +472,7 @@ void read_pixy_front()
     {
       if (!line_lost.active) {
         stop_motors(); update_motors();
+        reset_line_position();
         SERIAL_WIFI.print("e\tline_loss\n");
         line_lost.active = true;
         my_events_to_report.num_line_lost += 1;
@@ -481,9 +492,8 @@ void read_pixy_front()
 
       // Calculate heading error with respect to m_x1, which is the far-end of the vector,
       // the part of the vector we're heading toward.
-      linePosition = (int16_t)pixy.line.vectors->m_x1 - (int16_t)X_CENTER;
-      //Serial.print(linePosition);
-      //Serial.print(" : ");
+      int16_t linePositionCurrent = (int16_t)pixy.line.vectors->m_x1 - (int16_t)X_CENTER;
+      compute_line_position(linePositionCurrent);
 
     }
 
@@ -510,6 +520,22 @@ void read_pixy_front()
       }*/
     }
   }
+}
+
+void reset_line_position(){
+  for (int16_t i = 0 ; i < NUM_LINE_POS_AVERAGE_WINDOW; i++) {
+    linePositionValues[i] = 0;
+  }
+}
+
+void compute_line_position(int16_t linePositionCurrent){
+  linePositionValues[linePositionIndex++] = linePositionCurrent;
+  if (linePositionIndex >= NUM_LINE_POS_AVERAGE_WINDOW) { linePositionIndex = 0; }
+  linePosition = 0;
+  for (int16_t i = 0 ; i < NUM_LINE_POS_AVERAGE_WINDOW; i++) {
+    linePosition += linePositionValues[i];
+  }
+  linePosition = linePosition / NUM_LINE_POS_AVERAGE_WINDOW;
 }
 
 void handle_metro_stop() {
@@ -625,6 +651,8 @@ void follow_line()
   
 
   // now adjust left/right wheel speeed
+  motor_speed_left_prev  = motor_speed_left;
+  motor_speed_right_prev = motor_speed_right;  
   if (linePosition == 0)
   {
     motor_speed_left  = nominal_speed;
@@ -641,6 +669,23 @@ void follow_line()
   {
     motor_speed_left  = nominal_speed - KSTEEP * (-1) * factor;
     motor_speed_right = nominal_speed;
+  }
+
+
+  // handle motor acceleration limits
+  int16_t acc_left = motor_speed_left - motor_speed_left_prev;
+  if (acc_left > 0 && acc_left > +acc_limit_motor) {
+    motor_speed_left = motor_speed_left_prev + acc_limit_motor;
+  }
+  if (acc_left < 0 && acc_left < -acc_limit_motor) {
+    motor_speed_left = motor_speed_left_prev - acc_limit_motor;
+  }
+  int acc_right = motor_speed_right - motor_speed_right_prev;
+  if (acc_right > 0 && acc_right > +acc_limit_motor) {
+    motor_speed_right = motor_speed_right_prev + acc_limit_motor;
+  }
+  if (acc_right < 0 && acc_right < -acc_limit_motor) {
+    motor_speed_right = motor_speed_right_prev - acc_limit_motor;
   }
 
   SERIAL_WIFI.print(linePosition);

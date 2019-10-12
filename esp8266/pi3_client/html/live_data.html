@@ -112,7 +112,7 @@
                 var j = JSON.parse(event.data)
                 for (var i = 0 ; i < j.length; i++) {
                     var line = j[i];
-                    var shift = (mychart.series[0].data.length > 3000);
+                    var shift = (mychart.series[0].data.length > 1000);
                     mychart.series[0].addPoint(line[0] , false, shift);
                     mychart.series[1].addPoint(line[1] , false, shift);
                     

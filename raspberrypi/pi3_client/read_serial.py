@@ -40,7 +40,7 @@ def run():
         llen = redis_db.llen("mycmds")
         if llen > 0:
             cmd = redis_db.lpop("mycmds").decode("ascii").strip()
-            print(cmd)
+            print("cmd: "+cmd)
             ser.write((cmd+"\n").encode("ascii"))
             if llen > 6:  # if the queue gets too long, we'll dequeue some commands without sending to the robot
                 extra_cmds_to_drop = llen - 4
@@ -60,6 +60,9 @@ def run():
         elif "\t" in data:
             log(data)
             append_to_redis_data_graph(redis_db, data)
+        else:
+            if len(data)>0:
+                print("received: "+data)
         
         
 

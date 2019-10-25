@@ -2,13 +2,14 @@
 #include <VescUart.h>
 #include <datatypes.h>
 #include <Pixy2.h>
-#include <ArduinoUniqueID.h> // to read serial number of arduino board
+#include <ArduinoUniqueID.h> 
 #include <EEPROM.h>
+#include <PID_v1.h>  
 
-#define VERSION "0.9.5.4" // smoothing linePosition + reintroduce motor acceleration limits like 0.9.4.x
+#define VERSION "0.9.5.5" // using PID controller for line following
 
 String arduino_serial = "";
-#define AGV_NAME "AGV_DEV"
+#define AGV_NAME "AGV2"
 #define WIFI_REPORTING_INTERVAL_IN_SECS 30
 
 // To use VescUartControl stand alone you need to define a config.h file, that should contain the Serial or you have to comment the line
@@ -140,7 +141,7 @@ float acc_limit_negative = (NOMINAL_SPEED - ESC_STOP) / 0.50 / OBSERVED_FPS; // 
 float acc_limit_motor    = (NOMINAL_SPEED - ESC_STOP) / 0.40 / OBSERVED_FPS; // to limit vibrations  
 
 //#define KSTEEP 1.2 //0.8
-float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
+//float KSTEEP = (NOMINAL_SPEED - ESC_STOP) * 1.025;
 
 int16_t motor_speed_left = 0;
 int16_t motor_speed_right = 0;
@@ -183,6 +184,7 @@ uint32_t last_barcode_read_tick = 0;
 // incoming requests
 #define MAX_BUF 64
 char buf[MAX_BUF]; // command received on serial
+char res_buf[MAX_BUF]; // response to cmd received on serial
 uint8_t bufindex; //index
 
 #define DRIVE_AUTO   0
@@ -190,7 +192,16 @@ uint8_t bufindex; //index
 uint8_t driving_mode = DRIVE_AUTO;
 
 
+// pid logic
+double setpoint, pid_input, pid_output;
 
+//Specify the links and initial tuning parameters
+double Kp=0, Ki=0, Kd=0;
+//PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+PID myPID(&pid_input, &pid_output, &setpoint, Kp, Ki, Kd, P_ON_E, DIRECT);
+
+
+#define PID_LOOP_TIME_MS   16                          // PID loop time (milli sec. 100ms <=> 10Hz)
 
 
 int16_t rgb[NUM_COLORS][3] = {
@@ -205,7 +216,7 @@ int16_t rgb[NUM_COLORS][3] = {
 };
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(230400);
   SERIAL_WIFI.begin(115200);
   
 
@@ -293,9 +304,36 @@ void setup() {
   nominal_speed = ESC_STOP; target_nominal_speed = NOMINAL_SPEED; // resume normal speed
 
   reset_line_position();
+  
+  setup_pid();
 
   Serial.print("init done\n");
 }
+
+void setup_pid() {
+  pid_input = 0;
+  pid_output = 0;
+  setpoint = NOMINAL_SPEED;
+  myPID.SetSampleTime(PID_LOOP_TIME_MS);
+  myPID.SetOutputLimits(0, ESC_MAX);
+  Kp = 12;
+  Ki = 0;
+  Kd = 150;
+  myPID.SetTunings(Kp, Ki, Kd); 
+  set_pid_mode(0);
+}
+
+void set_pid_mode(int mode) 
+{ 
+  if (mode == 1) { 
+    myPID.SetMode(AUTOMATIC);
+  } else { 
+    myPID.SetMode(MANUAL);
+    pid_output = 0;
+  }
+}
+
+
 
 void read_km_from_eeprom () {
  // read values in memory
@@ -423,6 +461,7 @@ void obstacle_detection()
     }
     lidar_err.active = true;
     lidar_err.last_seen_in_ms = current_tick;
+    set_pid_mode(0);
   } else if (lidar_state == COMM_CRIT) {
     if (!lidar_crit.active) {
       my_events_to_report.num_lidar_crit += 1;
@@ -430,11 +469,9 @@ void obstacle_detection()
     lidar_crit.active = true;
     lidar_crit.last_seen_in_ms = current_tick;
   } else if (lidar_state == COMM_WARN) {
-    target_nominal_speed = NOMINAL_SPEED_WARNING;
-    //KSTEEP = (NOMINAL_SPEED_WARNING - ESC_STOP);
+    //target_nominal_speed = NOMINAL_SPEED_WARNING;
   } else {
     target_nominal_speed = NOMINAL_SPEED;
-    //KSTEEP = (NOMINAL_SPEED - ESC_STOP);
   }
   
   // reset flags after correct duration
@@ -473,6 +510,7 @@ void read_pixy_front()
       if (!line_lost.active) {
         stop_motors(); update_motors();
         reset_line_position();
+        set_pid_mode(0);
         SERIAL_WIFI.print("e\tline_loss\n");
         line_lost.active = true;
         my_events_to_report.num_line_lost += 1;
@@ -596,6 +634,7 @@ void set_motor_speed() {
   
   // for manual drive, just blink purple and return
   if (driving_mode == DRIVE_MANUAL) {
+    set_pid_mode(0);
     if ((current_tick/500L ) % 2 == 0) {
       set_led_color(C_PURPLE);
     } else {
@@ -606,10 +645,12 @@ void set_motor_speed() {
   
   if (line_lost.active) {
     stop_motors(); set_led_color(C_PURPLE);
+    set_pid_mode(0);
     return;
   }
   if (bumped.active) {
     stop_motors(); set_led_color(C_RED);
+    set_pid_mode(0);
     return;
   }
   
@@ -633,8 +674,8 @@ void set_motor_speed() {
 void follow_line()
 {
   motorstop = false;
+  set_pid_mode(1);
 
-  float factor = (float)linePosition / (pixy.frameWidth / 2);
 
   // handle acceleration
   if (nominal_speed < target_nominal_speed) {
@@ -646,31 +687,48 @@ void follow_line()
     nominal_speed -= acc_limit_negative;
     if (nominal_speed < target_nominal_speed) { nominal_speed = target_nominal_speed; }
   }
-  //KSTEEP = (nominal_speed - ESC_STOP) * 1.025f; // how it should have been
-  KSTEEP = (nominal_speed - ESC_STOP);
-  
-
-  // now adjust left/right wheel speeed
+  ////KSTEEP = (nominal_speed - ESC_STOP) * 1.025f; // how it should have been
+  //KSTEEP = (nominal_speed - ESC_STOP);
+  //
+  //
+  //// now adjust left/right wheel speeed
+  //float factor = (float)linePosition / (pixy.frameWidth / 2);
   motor_speed_left_prev  = motor_speed_left;
   motor_speed_right_prev = motor_speed_right;  
-  if (linePosition == 0)
-  {
-    motor_speed_left  = nominal_speed;
-    motor_speed_right = nominal_speed;
-  }
-
-  if (linePosition > 0)//turn right
-  {
-    motor_speed_left  = nominal_speed;
-    motor_speed_right = nominal_speed - KSTEEP * factor;
-  }
-
-  if (linePosition < 0)//turn left
-  {
-    motor_speed_left  = nominal_speed - KSTEEP * (-1) * factor;
-    motor_speed_right = nominal_speed;
-  }
-
+  //if (linePosition == 0)
+  //{
+  //  motor_speed_left  = nominal_speed;
+  //  motor_speed_right = nominal_speed;
+  //}
+  //
+  //if (linePosition > 0)//turn right
+  //{
+  //  motor_speed_left  = nominal_speed;
+  //  motor_speed_right = nominal_speed - KSTEEP * factor;
+  //}
+  //
+  //if (linePosition < 0)//turn left
+  //{
+  //  motor_speed_left  = nominal_speed - KSTEEP * (-1) * factor;
+  //  motor_speed_right = nominal_speed;
+  //}
+  
+  // compute with PID
+  setpoint = 0;
+  pid_input = linePosition;
+  myPID.Compute();
+  motor_speed_left  = nominal_speed - pid_output;
+  motor_speed_right = nominal_speed + pid_output;
+  //Serial.print(linePosition);
+  //Serial.print("\t");
+  //Serial.print(nominal_speed);
+  //Serial.print("\t");
+  //Serial.print(pid_output);
+  //Serial.print("\t");
+  //Serial.print(motor_speed_left);
+  //Serial.print("\t");
+  //Serial.print(motor_speed_right);
+  //Serial.print("\t");
 
   // handle motor acceleration limits
   int16_t acc_left = motor_speed_left - motor_speed_left_prev;
@@ -687,6 +745,12 @@ void follow_line()
   if (acc_right < 0 && acc_right < -acc_limit_motor) {
     motor_speed_right = motor_speed_right_prev - acc_limit_motor;
   }
+
+  //Serial.print(motor_speed_left);
+  //Serial.print("\t");
+  //Serial.print(motor_speed_right);
+  //Serial.print("\n");
+
 
   SERIAL_WIFI.print(linePosition);
   SERIAL_WIFI.print("\t");
@@ -810,12 +874,13 @@ void wifi_send_data() {
   }
 }
 
-void parse_command(char * cmd) {
+bool parse_command(char * cmd) {
   //Serial.print(cmd);   Serial.print("\n");
+  sprintf(res_buf,"%s", cmd);
   
   if (strlen(cmd) < 2)
-    return;
-  
+    return false;
+  bool res = true;
   if (cmd[0] == 'D') { // driving mode
     if (cmd[1] == '0') {
       driving_mode = DRIVE_AUTO;
@@ -826,14 +891,17 @@ void parse_command(char * cmd) {
     }
     
   } else if (cmd[0] == 'M') { // manual motor command
-    parse_motor_cmd(cmd + 1);
-  }  
+    res = parse_motor_cmd(cmd + 1);
+  } else if (cmd[0] == 'P') { // PID tuning command
+    res = parse_pid_tuning_cmd(cmd + 1);
+  } 
+  return res;
 }
 
-void parse_motor_cmd(char * cmd){
+bool parse_motor_cmd(char * cmd){
   // we accept motor_cmds only while manual driving
   if (driving_mode != DRIVE_MANUAL) 
-     return;
+     return false;
   
   char * tmp;
   char * str;
@@ -846,8 +914,40 @@ void parse_motor_cmd(char * cmd){
     }
     str = strtok_r(NULL, " ", &tmp);
   }
-  
+  sprintf(res_buf, "M L%d R%d", motor_speed_left, motor_speed_right);
+  return true;
 }
+
+bool parse_pid_tuning_cmd(char * cmd){
+  
+  char * tmp;
+  char * str;
+  str = strtok_r(cmd, " ", &tmp);
+  while (str != NULL) {
+    if (str[0] == 'P') {
+      Kp = atof(str + 1);
+    } else if (str[0] == 'I') {
+      Ki = atof(str + 1);
+    } else if (str[0] == 'D') {
+      Kd = atof(str + 1);
+    }
+    str = strtok_r(NULL, " ", &tmp);
+  }
+  myPID.SetTunings(Kp, Ki, Kd);   
+  
+  //sprintf(res_buf, "P P%.2f I%.2f D%.2f", Kp, Ki, Kd); // fuck me "float" not supported in arduino sprintf >:-(
+  // https://stackoverflow.com/questions/27651012/arduino-sprintf-float-not-formatting
+  char str_temp_kp[10];
+  char str_temp_ki[10];
+  char str_temp_kd[10];
+  dtostrf(Kp, 4, 2, str_temp_kp);
+  dtostrf(Ki, 4, 2, str_temp_ki);
+  dtostrf(Kd, 4, 2, str_temp_kd);
+  sprintf(res_buf, "P P%s I%s D%s", str_temp_kp, str_temp_ki, str_temp_kd);
+  return true;
+}
+
+
 
 void handle_incoming_cmd() {
   // grab incoming cmd if any
@@ -865,9 +965,14 @@ void handle_incoming_cmd() {
 
     if (c == '\n') {
       buf[--bufindex] = 0;
-	    //Serial.print(buf);
-      //Serial.print("\n");
-      parse_command(buf);
+	    //SERIAL_WIFI.print(buf);
+      //SERIAL_WIFI.print("\n");
+      bool res = parse_command(buf);
+      
+      SERIAL_WIFI.print(res ? "OK: " : "KO: " );
+      SERIAL_WIFI.print(res_buf);
+      SERIAL_WIFI.print("\n");
+      
       *buf = 0;
       bufindex = 0;
     }
@@ -915,27 +1020,27 @@ void loop() {
   uint32_t duration = current_tick - last_tick;
 
   
-  if (num_loop % (unsigned long)(OBSERVED_FPS) == 0) {
-    Serial.print("d:");
-    Serial.print(duration );
-    Serial.print("\t");
-    //float hz = 1000.0 / ((float)(duration));
-    //Serial.print(hz);
-    Serial.print("m:");
-    Serial.print(current_meters);
-    Serial.print("\t");
-    //Serial.print("uvc:");Serial.print(update_measured_values_ms - current_tick_us); Serial.print("\t");
-    //Serial.print("kms:");Serial.print(handle_kmeters_ms - update_measured_values_ms); Serial.print("\t");
-    //Serial.print("bat:");Serial.print(handle_battery_level_ms - handle_kmeters_ms); Serial.print("\t");
-    //Serial.print("bmp:");Serial.print(bumper_detection_ms - handle_battery_level_ms); Serial.print("\t");
-    //Serial.print("obs:");Serial.print(obstacle_detection_ms - bumper_detection_ms); Serial.print("\t");
-    //Serial.print("pix:");Serial.print(read_pixy_front_ms - obstacle_detection_ms); Serial.print("\t");
-    //Serial.print("spd:");Serial.print(set_motor_speed_ms - read_pixy_front_ms); Serial.print("\t");
-    //Serial.print("mtr:");Serial.print(update_motors_ms - set_motor_speed_ms); Serial.print("\t");
-    //Serial.print("dty:");Serial.print(handle_duty_level_ms - update_motors_ms); Serial.print("\t");
-    //Serial.print("wfi:");Serial.print(wifi_send_data_ms - handle_duty_level_ms); Serial.print("\t");
-    Serial.print("\n");
-  }
+  //if (num_loop % (unsigned long)(OBSERVED_FPS) == 0) {
+  //  Serial.print("d:");
+  //  Serial.print(duration );
+  //  Serial.print("\t");
+  //  //float hz = 1000.0 / ((float)(duration));
+  //  //Serial.print(hz);
+  //  Serial.print("m:");
+  //  Serial.print(current_meters);
+  //  Serial.print("\t");
+  //  //Serial.print("uvc:");Serial.print(update_measured_values_ms - current_tick_us); Serial.print("\t");
+  //  //Serial.print("kms:");Serial.print(handle_kmeters_ms - update_measured_values_ms); Serial.print("\t");
+  //  //Serial.print("bat:");Serial.print(handle_battery_level_ms - handle_kmeters_ms); Serial.print("\t");
+  //  //Serial.print("bmp:");Serial.print(bumper_detection_ms - handle_battery_level_ms); Serial.print("\t");
+  //  //Serial.print("obs:");Serial.print(obstacle_detection_ms - bumper_detection_ms); Serial.print("\t");
+  //  //Serial.print("pix:");Serial.print(read_pixy_front_ms - obstacle_detection_ms); Serial.print("\t");
+  //  //Serial.print("spd:");Serial.print(set_motor_speed_ms - read_pixy_front_ms); Serial.print("\t");
+  //  //Serial.print("mtr:");Serial.print(update_motors_ms - set_motor_speed_ms); Serial.print("\t");
+  //  //Serial.print("dty:");Serial.print(handle_duty_level_ms - update_motors_ms); Serial.print("\t");
+  //  //Serial.print("wfi:");Serial.print(wifi_send_data_ms - handle_duty_level_ms); Serial.print("\t");
+  //  Serial.print("\n");
+  //}
   last_tick = current_tick;
   num_loop++;
 

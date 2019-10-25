@@ -5,7 +5,13 @@ pixy2 line follow
 2. File > Load Pixy Parameters > select "parametres_pixy_prod.prm" 
 
 
-----------------------
+---------------------------
+OLD - NE PAS FAIRE DESSOUS
+---------------------------
+
+
+
+
 
 2. Program > line tracking
 3. File > configure

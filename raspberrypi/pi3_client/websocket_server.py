@@ -69,8 +69,8 @@ def cap(x,limit):
 #  }
 
 def joy_xy_to_motor_cmd(x,y):
-    ESC_MIN = -3000
-    ESC_MAX = +3000
+    ESC_MIN = -5000
+    ESC_MAX = +5000
     ESC_STOP = 150
     joy_limit = 150
     x = cap(x, joy_limit)
@@ -148,46 +148,22 @@ async def handler(websocket, path):
                 #await websocket.send(json.dumps(lines))
             else:
                 time.sleep(1.0)
+        elif (path == "/pid_tuning"):
+            msg = ""
+            try:
+                msg = await websocket.recv()
+                print(msg)
+                j = json.loads(msg);
+    
+                cmd = f"P P{j['Kp']} I{j['Ki']} D{j['Kd']}"
+                #print(cmd)
+                redis_db.rpush("mycmds", cmd)  # rpush to add / lpop to retreive
+            except:
+                pass
         else:
             print("'"+(path)+"'")
         
 
-
-#async def handler(websocket, path):
-#    print("'"+(path)+"'")
-#    redis_db = redis.StrictRedis(host="localhost", port=6379, db=0)
-#    
-#    while True:
-#        if not websocket.open:
-#            break
-#        
-#        msg = await websocket.recv()
-#        print(msg)
-#        if msg.startswith("xy"):
-#            # ok... JSON would be more elegant :/
-#            #d = datetime.now().isoformat().replace("T", " ")
-#            ## xy:-77|-261
-#            xy, values = msg.split(":")
-#            x, y = values.split("|")
-#            x = int(x)
-#            y = int(y)
-#            #print(d+"\txy\t"+x+"\t"+y)
-#            (motor_speed_left , motor_speed_right) = joy_xy_to_motor_cmd(x, y)
-#            cmd = f"M L{motor_speed_left}  R{motor_speed_right}"
-#            print(cmd)
-#            redis_db.rpush("mycmds", cmd)  # rpush to add / lpop to retreive
-#            # useful tool => https://jsoneditoronline.org/
-#            j = f'{{ "l":{motor_speed_left} , "r":{motor_speed_right} }}'
-#            #print(j)
-#            #print("")
-#            await websocket.send(j)
-#        elif msg.startswith("drive"):
-#            #drive:0
-#            #drive:1
-#            cmd = msg.replace("drive:", "D")
-#            redis_db.rpush("mycmds", cmd)  # rpush to add / lpop to retreive
-#        else:
-#            print("unknown msg: "+msg)
             
 def main():
     print("starting server on port 3000")

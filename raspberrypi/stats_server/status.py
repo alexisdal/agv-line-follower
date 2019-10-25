@@ -40,11 +40,11 @@ try:
     print("<th>Volt</th>")
     print("<th>km&nbsp;&nbsp;&nbsp;</th>")
     print("<th>fw&nbsp;&nbsp;&nbsp;</th>")
-    print("<th>qs&nbsp;&nbsp;&nbsp;</th>")
     print("<th>sec&nbsp;&nbsp;&nbsp;</th>")
     print("</tr>");
     
-    agv_names = [ "AGV1", "AGV2", "AGV3", "AGV_DEV"]
+    agv_names = [ "AGV_DEV", "AGV1", "AGV2", "AGV3", "AGV4", "AGV5", "AGV6", "AGV7"]
+    agv_hostname = { "AGV_DEV":"mtba00000" , "AGV1":"mtba00001", "AGV2":"mtba00002", "AGV3":"mtba00003", "AGV4":"mtba00004", "AGV5":"mtba00005", "AGV6":"mtba00006", "AGV7":"mtba00007" }
     for name in agv_names:
     
         sql = """
@@ -66,16 +66,16 @@ try:
         #print(str(data))
         
         print("<tr>")
+        print(f'<td><a href="http://{agv_hostname[name]}/">{name}</a></td>' )
         if (res == 1):
-            print("<td>%s</td>" % name )
             print("<td>%s</td>" % (data["VOLTAGE"]) )
             km = "%0.2f" % (float(data["KM"]) + (float(data["M"]) / 1000.0))
             print("<td>%s</td>" % ( km ) )
             print("<td>%s</td>" % (data["FW"]) )
-            print("<td>%s</td>" % (data["queue_size"]) )
             duration = (now - data["DATE"]).total_seconds()
             print("<td>%s</td>" % ( str(int(duration))  ) )
-            
+        else:
+            print('<td colspan="4">no data</td>')
         print("</tr>")
         
     print("</table>");

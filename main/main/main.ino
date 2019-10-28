@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.4" // smoothing linePosition + reintroduce motor acceleration limits like 0.9.4.x
+#define VERSION "0.9.5.5" // using lidar v0.7.2  increased detection zones with two different left/right critical zones
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"

@@ -1,0 +1,141 @@
+<html>
+<head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+        <style>
+        body {
+            overflow    : hidden;
+            padding        : 0;
+            margin        : 0;
+            background-color: #BBB;
+        }
+        .my_range {
+            text-align: center
+            //top : 40px;
+            width        : 80%;
+            //height      : 90%;
+            overflow    : hidden;
+            padding     : 5px;
+            margin      : 5px;
+        }
+        .my_button {
+            text-align: center
+            width        : 10%;
+            overflow    : hidden;
+            padding     : 5px;
+            margin      : 5px;
+        }
+        </style>
+</head>
+
+<body>
+
+<div><div id="pid_values">
+</div></div>
+<div>
+<div>
+  <input type="number" id="kp_min" value="0" class="mybutton" />
+  <input type="range" min="0" max="100" value="0" id="kp_selector_range" class="myrange">
+  <input type="number" id="kp_max" value="24" class="mybutton" />
+</div>
+<div>
+  <input type="number" id="ki_min" value="0" class="mybutton" />
+  <input type="range" min="0" max="100" value="0" id="ki_selector_range" class="myrange">
+  <input type="number" id="ki_max" value="100" class="mybutton" />
+</div>
+<div>
+  <input type="number" id="kd_min" value="0" class="mybutton" />
+  <input type="range" min="0" max="100" value="0" id="kd_selector_range" class="myrange">
+  <input type="number" id="kd_max" value="5000" class="mybutton" />
+</div>
+
+<div id="joy_container"></div>
+
+
+
+        <script src="/virtualjoystick.js"></script>
+        <script>
+            console.log("touchscreen is", VirtualJoystick.touchScreenAvailable() ? "available" : "not available");
+            
+            var current_param = "Kp";
+            var Kp = 0.0;
+            var Ki = 0.0;
+            var Kd = 0.0;
+            var prev_Kp = Kp;
+            var prev_Ki = Ki;
+            var prev_Kd = Kd;
+            
+
+
+            var prev_da = 4;
+            const socket = new WebSocket("ws://"+window.location.hostname+":3000/pid_tuning");
+            socket.onopen = event => { 
+                console.log("Connected:", event); 
+            }
+            socket.onclose = event => console.log("Connection lost:", event);
+            socket.onmessage = event => {
+                //var j = JSON.parse(event.data)
+                //console.log("Received:", j);
+                console.log("Received:", event.data);
+            }
+
+            setInterval(function(){
+                var kp_min   = parseInt(document.getElementById("kp_min").value) ;
+                var kp_max   = parseInt(document.getElementById("kp_max").value) ;
+                var kp_range = document.getElementById("kp_selector_range").value / 100.0 ;
+                
+                Kp = kp_min + kp_range * (kp_max - kp_min);
+
+                var ki_min   = parseInt(document.getElementById("ki_min").value) ;
+                var ki_max   = parseInt(document.getElementById("ki_max").value) ;
+                var ki_range = document.getElementById("ki_selector_range").value / 100.0 ;
+                
+                Ki = ki_min + ki_range * (ki_max - ki_min);
+
+                var kd_min   = parseInt(document.getElementById("kd_min").value) ;
+                var kd_max   = parseInt(document.getElementById("kd_max").value) ;
+                var kd_range = document.getElementById("kd_selector_range").value / 100.0 ;
+                
+                Kd = kd_min + kd_range * (kd_max - kd_min);
+
+
+                Kp = Math.round(Kp * 1000) / 1000;
+                Ki = Math.round(Ki * 1000) / 1000;                
+                Kd = Math.round(Kd * 1000) / 1000;                
+                
+            }, 1/60.0 * 1000);
+
+            setInterval(function(){
+                if ((Kp == prev_Kp) && (Ki == prev_Ki) && (Kd == prev_Kd)) { return; }
+                
+                prev_Kp = Kp;
+                prev_Ki = Ki;
+                prev_Kd = Kd;
+                update_pid_text();
+                var j = `{ "Kp" : ${Kp}, "Ki" : ${Ki}, "Kd" : ${Kd} }`;
+                //console.log(j);
+                socket.send(j);
+                
+            }, 1/5.0 * 1000);
+            
+            function update_pid_text() {
+            var o = document.getElementById('pid_values');
+            o.innerHTML = ''
+                + (current_param == "Kp" ? "<b>" : "")
+                + "Kp: " + Kp
+                + (current_param == "Kp" ? "</b>" : "")
+                + "&nbsp;&nbsp;&nbsp;&nbsp;"
+                + (current_param == "Ki" ? "<b>" : "")
+                + "Ki: " + Ki
+                + (current_param == "Ki" ? "</b>" : "")
+                + "&nbsp;&nbsp;&nbsp;&nbsp;"
+                + (current_param == "Kd" ? "<b>" : "")
+                + "Kd: " + Kd
+                + (current_param == "Kd" ? "</b>" : "");
+            }
+            update_pid_text();
+
+        </script>
+
+</body>
+</html>

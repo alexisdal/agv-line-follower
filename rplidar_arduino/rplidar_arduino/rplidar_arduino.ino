@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <RPLidar.h>
 
-#define VERSION "0.7.1" // extended detection zones (crit @ 290 mm + warn @ 575 mm)
+#define VERSION "0.7.2" // increased detection zones with two different left/right critical zones
 
 // You need to create an driver instance
 RPLidar lidar;
@@ -28,16 +28,19 @@ RPLidar lidar;
 // ERR      1    1
 
 
-#define ZONE_CRITICAL  0
-#define ZONE_A         1
-#define ZONE_B         2
-#define ZONE_C         3
-#define ZONE_D         4
-#define ZONE_E         5
-#define ZONE_F         6
-#define NUM_ZONES 7
+#define ZONE_CRIT_LEFT  0
+#define ZONE_CRIT_RIGHT 1
+#define ZONE_A          2
+#define ZONE_B          3
+#define ZONE_C          4
+#define ZONE_D          5
+#define ZONE_E          6
+#define ZONE_F          7
+#define ZONE_G          8
+#define NUM_ZONES 9
 uint16_t min_distances[NUM_ZONES];
 uint16_t tolerated_distances[NUM_ZONES];
+uint16_t tolerated_angles[NUM_ZONES][2]; // 0 start | 1 end
 #define MAXIMUM_DISTANCE 9999
 
 
@@ -55,7 +58,8 @@ int16_t index_bumper = 0;
 #define NUM_ENTERED_EVENTS 3
 #define NUM_ENTERED_TO_TRIG 2  // 2 "entered" events within the last 3 events trig a positive event (cheap debounce)
 uint16_t index_trig = 0;
-#define ZONE_WARNING 1
+#define ZONE_CRITICAL  0
+#define ZONE_WARNING   1
 bool last_lidar_entered_events[NUM_ENTERED_EVENTS][2];
 
 
@@ -94,13 +98,39 @@ void setup() {
   digitalWrite(PIN_BUMPER_DATA, LOW); // send bumper_ok to the main arduino
 
 
-  tolerated_distances[ZONE_CRITICAL] = 290;
-  tolerated_distances[ZONE_A] = 330;
-  tolerated_distances[ZONE_B] = 342;
-  tolerated_distances[ZONE_C] = 364;
-  tolerated_distances[ZONE_D] = 403;
-  tolerated_distances[ZONE_E] = 451;
-  tolerated_distances[ZONE_F] = 575;
+  tolerated_distances[ZONE_CRIT_RIGHT] = 350;
+  tolerated_distances[ZONE_CRIT_LEFT]  = 290;
+  tolerated_distances[ZONE_G] = 825;
+  tolerated_distances[ZONE_F] = 665;
+  tolerated_distances[ZONE_E] = 547;
+  tolerated_distances[ZONE_D] = 489;
+  tolerated_distances[ZONE_C] = 442;
+  tolerated_distances[ZONE_B] = 414;
+  tolerated_distances[ZONE_A] = 400;
+  tolerated_angles[ZONE_G][0] = 0;
+  tolerated_angles[ZONE_G][1] = 29;
+  tolerated_angles[ZONE_F][0] = tolerated_angles[ZONE_G][1];
+  tolerated_angles[ZONE_F][1] = tolerated_angles[ZONE_G][1] + 8;
+  tolerated_angles[ZONE_E][0] = tolerated_angles[ZONE_F][1];
+  tolerated_angles[ZONE_E][1] = tolerated_angles[ZONE_F][1] + 10;
+  tolerated_angles[ZONE_D][0] = tolerated_angles[ZONE_E][1];
+  tolerated_angles[ZONE_D][1] = tolerated_angles[ZONE_E][1] + 8;
+  tolerated_angles[ZONE_C][0] = tolerated_angles[ZONE_D][1];
+  tolerated_angles[ZONE_C][1] = tolerated_angles[ZONE_D][1] + 10;
+  tolerated_angles[ZONE_B][0] = tolerated_angles[ZONE_C][1];
+  tolerated_angles[ZONE_B][1] = tolerated_angles[ZONE_C][1] + 10;
+  tolerated_angles[ZONE_A][0] = tolerated_angles[ZONE_B][1];
+  tolerated_angles[ZONE_A][1] = tolerated_angles[ZONE_B][1] + 38;
+  
+  // trick to avoid dev errors (stop execution on dev mistake. sum must be 113. see freecad plan)
+  if (tolerated_angles[ZONE_A][1] != (113)) { while(1) {;} }
+
+  tolerated_angles[ZONE_CRIT_RIGHT][0] = 0;
+  tolerated_angles[ZONE_CRIT_RIGHT][1] = 113;
+  tolerated_angles[ZONE_CRIT_LEFT][0] = 360-113;
+  tolerated_angles[ZONE_CRIT_LEFT][1] = 360;
+  
+
   reset_values();
   for (size_t i = 0 ; i < NUM_BUMP_READ ; i++) {
     bump_values_1[i] = false;
@@ -142,18 +172,19 @@ void reset_values()
 
 bool is_warning_zone_entered()
 {
-
-  return   (   (min_distances[ZONE_A] < tolerated_distances[ZONE_A])
-               || (min_distances[ZONE_B] < tolerated_distances[ZONE_B])
-               || (min_distances[ZONE_C] < tolerated_distances[ZONE_C])
-               || (min_distances[ZONE_D] < tolerated_distances[ZONE_D])
-               || (min_distances[ZONE_E] < tolerated_distances[ZONE_E])
-               || (min_distances[ZONE_F] < tolerated_distances[ZONE_F]) );
+  return   (      (min_distances[ZONE_A] <= tolerated_distances[ZONE_A])
+               || (min_distances[ZONE_B] <= tolerated_distances[ZONE_B])
+               || (min_distances[ZONE_C] <= tolerated_distances[ZONE_C])
+               || (min_distances[ZONE_D] <= tolerated_distances[ZONE_D])
+               || (min_distances[ZONE_E] <= tolerated_distances[ZONE_E])
+               || (min_distances[ZONE_F] <= tolerated_distances[ZONE_F])
+               || (min_distances[ZONE_G] <= tolerated_distances[ZONE_G]) );
 }
 
 bool is_critical_zone_entered()
 {
-  return (min_distances[ZONE_CRITICAL] < tolerated_distances[ZONE_CRITICAL]);
+  return ((min_distances[ZONE_CRIT_LEFT]  <= tolerated_distances[ZONE_CRIT_LEFT])
+        ||(min_distances[ZONE_CRIT_RIGHT] <= tolerated_distances[ZONE_CRIT_RIGHT]) );
 }
 
 void dump_zones_distances() {
@@ -306,52 +337,85 @@ void loop() {
     {
 
       // warning zone
-      if      ( ((  0 <= angle) && (angle <  35)) && (distance < min_distances[ZONE_F]) ) {
-        min_distances[ZONE_F] = distance;
+      //if      ( ((  0 <= angle) && (angle <  35)) && (distance < min_distances[ZONE_F]) ) {
+      //  min_distances[ZONE_F] = distance;
+      //}
+      //else if ( (( 35 <= angle) && (angle <  47)) && (distance < min_distances[ZONE_E]) ) {
+      //  min_distances[ZONE_E] = distance;
+      //}
+      //else if ( (( 47 <= angle) && (angle <  55)) && (distance < min_distances[ZONE_D]) ) {
+      //  min_distances[ZONE_D] = distance;
+      //}
+      //else if ( (( 55 <= angle) && (angle <  65)) && (distance < min_distances[ZONE_C]) ) {
+      //  min_distances[ZONE_C] = distance;
+      //}
+      //else if ( (( 65 <= angle) && (angle <  75)) && (distance < min_distances[ZONE_B]) ) {
+      //  min_distances[ZONE_B] = distance;
+      //}
+      //else if ( (( 75 <= angle) && (angle < 113)) && (distance < min_distances[ZONE_A]) ) {
+      //  min_distances[ZONE_A] = distance;
+      //}
+      //else if ( ((247 <= angle) && (angle < 285)) && (distance < min_distances[ZONE_A]) ) {
+      //  min_distances[ZONE_A] = distance;
+      //}
+      //else if ( ((285 <= angle) && (angle < 295)) && (distance < min_distances[ZONE_B]) ) {
+      //  min_distances[ZONE_B] = distance;
+      //}
+      //else if ( ((295 <= angle) && (angle < 305)) && (distance < min_distances[ZONE_C]) ) {
+      //  min_distances[ZONE_C] = distance;
+      //}
+      //else if ( ((305 <= angle) && (angle < 313)) && (distance < min_distances[ZONE_D]) ) {
+      //  min_distances[ZONE_D] = distance;
+      //}
+      //else if ( ((313 <= angle) && (angle < 325)) && (distance < min_distances[ZONE_E]) ) {
+      //  min_distances[ZONE_E] = distance;
+      //}
+      //else if ( ((325 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_F]) ) {
+      //  min_distances[ZONE_F] = distance;
+      //}
+      
+      //// critical zone
+      //if      ( ((  0 <= angle) && (angle <= 113)) && (distance < min_distances[ZONE_CRITICAL]) ) {
+      //  min_distances[ZONE_CRITICAL] = distance;
+      //}
+      //else if ( ((247 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_CRITICAL]) ) {
+      //  min_distances[ZONE_CRITICAL] = distance;
+      //}
+
+      uint16_t start_angle = 0;
+      uint16_t end_angle = 0;
+      uint8_t i = 0;
+      // warning zones (both sides)
+      for (i = ZONE_A ; i < NUM_ZONES ; i++) {
+        // left
+        start_angle = tolerated_angles[i][0];
+        end_angle   = tolerated_angles[i][1];
+        if ((start_angle <= angle) && (angle <= end_angle) && (distance < min_distances[i])) {
+          min_distances[i] = distance;
+        }
+        // right
+        start_angle = 360 - tolerated_angles[i][1];
+        end_angle   = 360 - tolerated_angles[i][0];
+        if ((start_angle <= angle) && (angle <= end_angle) && (distance < min_distances[i])) {
+          min_distances[i] = distance;
+        }
       }
-      else if ( (( 35 <= angle) && (angle <  47)) && (distance < min_distances[ZONE_E]) ) {
-        min_distances[ZONE_E] = distance;
+      
+      // critical zones
+      i = ZONE_CRIT_LEFT;
+      start_angle = tolerated_angles[i][0];
+      end_angle   = tolerated_angles[i][1];
+      if ((start_angle <= angle) && (angle <= end_angle) && (distance < min_distances[i])) {
+        min_distances[i] = distance;
       }
-      else if ( (( 47 <= angle) && (angle <  55)) && (distance < min_distances[ZONE_D]) ) {
-        min_distances[ZONE_D] = distance;
-      }
-      else if ( (( 55 <= angle) && (angle <  65)) && (distance < min_distances[ZONE_C]) ) {
-        min_distances[ZONE_C] = distance;
-      }
-      else if ( (( 65 <= angle) && (angle <  75)) && (distance < min_distances[ZONE_B]) ) {
-        min_distances[ZONE_B] = distance;
-      }
-      else if ( (( 75 <= angle) && (angle < 113)) && (distance < min_distances[ZONE_A]) ) {
-        min_distances[ZONE_A] = distance;
-      }
-      else if ( ((247 <= angle) && (angle < 285)) && (distance < min_distances[ZONE_A]) ) {
-        min_distances[ZONE_A] = distance;
-      }
-      else if ( ((285 <= angle) && (angle < 295)) && (distance < min_distances[ZONE_B]) ) {
-        min_distances[ZONE_B] = distance;
-      }
-      else if ( ((295 <= angle) && (angle < 305)) && (distance < min_distances[ZONE_C]) ) {
-        min_distances[ZONE_C] = distance;
-      }
-      else if ( ((305 <= angle) && (angle < 313)) && (distance < min_distances[ZONE_D]) ) {
-        min_distances[ZONE_D] = distance;
-      }
-      else if ( ((313 <= angle) && (angle < 325)) && (distance < min_distances[ZONE_E]) ) {
-        min_distances[ZONE_E] = distance;
-      }
-      else if ( ((325 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_F]) ) {
-        min_distances[ZONE_F] = distance;
+      i = ZONE_CRIT_RIGHT;
+      start_angle = tolerated_angles[i][0];
+      end_angle   = tolerated_angles[i][1];
+      if ((start_angle <= angle) && (angle <= end_angle) && (distance < min_distances[i])) {
+        min_distances[i] = distance;
       }
 
-
-      // critical zone
-      if      ( ((  0 <= angle) && (angle <= 113)) && (distance < min_distances[ZONE_CRITICAL]) ) {
-        min_distances[ZONE_CRITICAL] = distance;
-      }
-      else if ( ((247 <= angle) && (angle <= 360)) && (distance < min_distances[ZONE_CRITICAL]) ) {
-        min_distances[ZONE_CRITICAL] = distance;
-      }
-
+      
     }
 
   }

@@ -5,7 +5,7 @@
 #include <ArduinoUniqueID.h> // to read serial number of arduino board
 #include <EEPROM.h>
 
-#define VERSION "0.9.5.5" // using lidar v0.7.2  increased detection zones with two different left/right critical zones
+#define VERSION "0.9.5.6" // using lidar v0.7.3 green button now connected to A1 instead of reset
 
 String arduino_serial = "";
 #define AGV_NAME "AGV_DEV"

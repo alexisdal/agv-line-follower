@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <RPLidar.h>
 
-#define VERSION "0.7.2" // increased detection zones with two different left/right critical zones
+#define VERSION "0.7.3" // green button now connected to A1 instead of reset
 
 // You need to create an driver instance
 RPLidar lidar;
@@ -49,11 +49,13 @@ uint16_t tolerated_angles[NUM_ZONES][2]; // 0 start | 1 end
 #define PIN_BUMPER_2   A3
 #define PIN_LED_BUMPER  2
 #define PIN_BUMPER_DATA  4
+#define PIN_BUMPER_BUTTON  A1
 
 #define NUM_BUMP_READ 3
 int16_t bump_values_1[NUM_BUMP_READ];
 int16_t bump_values_2[NUM_BUMP_READ];
 int16_t index_bumper = 0;
+bool bumped = false;
 
 #define NUM_ENTERED_EVENTS 3
 #define NUM_ENTERED_TO_TRIG 2  // 2 "entered" events within the last 3 events trig a positive event (cheap debounce)
@@ -91,6 +93,7 @@ void setup() {
   // set bumper pin mode
   pinMode(PIN_BUMPER_1,    INPUT_PULLUP);
   pinMode(PIN_BUMPER_2,    INPUT_PULLUP);
+  pinMode(PIN_BUMPER_BUTTON,    INPUT_PULLUP);
   pinMode(PIN_LED_BUMPER,   OUTPUT);
   pinMode(PIN_BUMPER_DATA, OUTPUT);
 
@@ -131,7 +134,7 @@ void setup() {
   tolerated_angles[ZONE_CRIT_LEFT][1] = 360;
   
 
-  reset_values();
+  reset_distance_values();
   for (size_t i = 0 ; i < NUM_BUMP_READ ; i++) {
     bump_values_1[i] = false;
     bump_values_2[i] = false;
@@ -156,7 +159,7 @@ void setup() {
 
 }
 
-void reset_values()
+void reset_distance_values()
 {
   for (int16_t i = 0 ; i < NUM_ZONES ; i++)
   {
@@ -249,7 +252,7 @@ void handle_complete_rotation()
   analogWrite(PIN_LED_WARNING, led_warning);
   analogWrite(PIN_LED_CRITICAL, led_critical);
   send_communication(state);
-  reset_values();
+  reset_distance_values();
 }
 
 void send_communication(int16_t state) {
@@ -309,11 +312,24 @@ void bumper_detection()
     nb_bumps += (uint16_t)(bump_values_2[i] > 900);
   }
   
+  
   if (nb_bumps >= max_bumps) { 
+    bumped = true;
     digitalWrite(PIN_LED_BUMPER, HIGH); // led on
     digitalWrite(PIN_LED_OVERALL_STATUS, 1); // led on
     digitalWrite(PIN_BUMPER_DATA, HIGH); // send stop signal to the main arduino
   }
+  
+  if (bumped) {
+    // read button to exit bumped status
+    if (digitalRead(PIN_BUMPER_BUTTON) == 0 && digitalRead(PIN_BUMPER_BUTTON) == 0) {
+      bumped = false;
+      digitalWrite(PIN_LED_BUMPER, LOW); // led off
+      digitalWrite(PIN_LED_OVERALL_STATUS, 0); // led off
+      digitalWrite(PIN_BUMPER_DATA, LOW); // send ok bump to the main arduino
+    }
+  }
+  
 }
 
 void loop() {
